@@ -1,0 +1,21 @@
+# ADR-0005 · Subida con una petición por archivo, reintento idempotente y criterio para pasar a TUS
+
+- **Contexto:**
+  - Se espera concurrencia baja, con la mayoría de subidas por Wi-Fi o al día siguiente.
+  - Aun así habrá cortes de red y respuestas que no llegan.
+- **Decisión:**
+  - Cada archivo tiene un identificador generado en el cliente.
+  - Las versiones pequeñas se suben primero, en peticiones cortas.
+  - El original se sube con `PUT /api/media/{id}`, con el archivo como cuerpo y su tamaño declarado.
+  - El proxy lo pasa sin guardarlo antes, con plazo de inactividad y sin plazo total.
+  - La aplicación escribe en `tmp/{id}.part`, comprueba la firma del archivo y el tamaño, fuerza la escritura a disco (`fsync`), renombra, confirma en SQLite y responde 201.
+  - Si reintenta un identificador ya confirmado, responde 200 sin volver a escribir. Si reintenta uno que está subiéndose, el nuevo intento sustituye al antiguo.
+  - En el cliente: 2 subidas a la vez (1 si es un vídeo) y hasta 5 reintentos, esperando cada vez más.
+- **Motivo determinante:** es el mecanismo más simple que no duplica archivos ni deja la base de datos incoherente. El reintento completo es asumible con el patrón de uso real.
+- **Descartado:**
+  - Formulario multipart: temporales inesperados y el tamaño de cada parte no se conoce de antemano.
+  - TUS en la primera versión: estado de subidas a medias y limpieza propias.
+  - Fragmentos programados a mano: sería reinventar TUS.
+- **Consecuencias y criterio de cambio (ESTADO: ACEPTADO CON CONDICIÓN):**
+  - Si en la prueba T2 un vídeo de unos 300 MB falla en más del 30% de los intentos con 4G real, se incorpora TUS. Con Go, el servidor se integra como librería.
+  - El identificador y los estados no cambian, así que el cambio está acotado.

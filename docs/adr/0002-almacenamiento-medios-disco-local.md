@@ -1,0 +1,21 @@
+# ADR-0002 · Almacenamiento de medios en el disco local
+
+- **Contexto:**
+  - Hay que guardar binarios de hasta 1,5 GB y servirlos con peticiones Range.
+  - Al terminar, la entrega a los novios es un `rsync` hecho a mano.
+  - Hay un volumen de 200 GB que se ampliará a más de 500 GB.
+- **Decisión:**
+  - Todo vive en un único sistema de archivos, bajo `/srv/evento`: `data/`, `tmp/`, `originals/`, `derived/`, `hidden/` y `quarantine/`.
+  - Nombre final: `{fecha UTC de confirmación}_{id}.{ext}`, con 128 bits aleatorios en el identificador.
+  - Los archivos no se modifican una vez publicados.
+  - El disco decide si un archivo existe; SQLite decide si es visible.
+- **Motivo determinante:**
+  - El renombrado dentro del mismo sistema de archivos es atómico. Con él se confirma una subida y se oculta un archivo.
+  - `rsync` sobre `originals/` es directamente la entrega a los novios.
+- **Descartado:**
+  - MinIO local: otro proceso en el mismo disco y con el mismo punto de fallo.
+  - Oracle Object Storage: dos fuentes de verdad, CORS y URLs prefirmadas para un problema de capacidad que no tenemos.
+- **Consecuencias:**
+  - No hay copia fuera de la máquina hasta el `rsync`. Se asume, porque el volumen de Oracle es almacenamiento replicado y el evento no es crítico.
+  - Llenar el disco afecta también al sistema operativo, y se mitiga con el corte automático por umbral.
+  - La ampliación del volumen se prepara y se prueba **la semana anterior**, no el mismo día.
