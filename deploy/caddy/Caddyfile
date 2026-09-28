@@ -1,0 +1,15 @@
+{
+    servers {
+        protocols h1 h2
+    }
+}
+
+{$BODA_DOMAIN:localhost} {
+    encode gzip zstd
+
+    reverse_proxy /api/* app:8080
+
+    root * /srv
+    try_files {path} /index.html
+    file_server
+}

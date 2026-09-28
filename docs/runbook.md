@@ -1,5 +1,11 @@
 # Runbook
 
+## Integración continua
+
+GitHub Actions ejecuta la verificación en cada pull request dirigido a `develop` y en cada push a `develop` (incluidos los merges). El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.
+
+Las imágenes se exportan como archivos OCI temporales para validar la compilación: no se publican, no requieren inicio de sesión en un registry y no se despliegan. La protección de `develop` y la exigencia de que CI pase antes de permitir merges se configuran por separado en los ajustes del repositorio de GitHub.
+
 ## 2.2 Configuración
 
 **Regla:** lo estático o secreto va en variables de entorno; lo que se cambia con la aplicación en marcha, en SQLite.
