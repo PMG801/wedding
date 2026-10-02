@@ -15,7 +15,8 @@ Make the repo comfortable to work on with the Gentle/ODD harness (project-level 
   - Evidence: git diff --check ok; backend/boda untracked. Commit: 492799b
 - [x] **T2 — Backend HTTP server with `/api/health`** (test-first, `net/http`, stdlib only).
   - Evidence: RED (NewHandler undefined) -> GREEN; go test, go vet, build ok. Commit: 0baf458
-- [ ] **T3 — Frontend fetches and shows health** (Vitest test for the API client).
+- [x] **T3 — Frontend fetches and shows health** (Vitest test for the API client).
+  - Evidence: RED (./health missing) -> GREEN; npm test 7/7, build, svelte-check ok. Commit: bf91d94
 - [ ] **T4 — Docker Compose for local run** (`app` + `web`, healthchecks).
 - [ ] **T5 — CI e2e smoke test + runbook/workflow docs update**.
 
