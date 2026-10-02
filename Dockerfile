@@ -33,7 +33,7 @@ COPY --from=backend-build --chown=nonroot:nonroot /out/boda /usr/local/bin/boda
 EXPOSE 8080
 USER nonroot
 ENTRYPOINT ["/usr/local/bin/boda"]
-CMD ["check"]
+CMD ["serve"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/usr/local/bin/boda", "check"]
 
 # -----------------------

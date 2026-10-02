@@ -1,5 +1,20 @@
 # Runbook
 
+## Ejecución local con Docker Compose
+
+Desde la raíz del repositorio, construye y arranca la aplicación y Caddy:
+
+```sh
+docker compose up --build
+```
+
+La web queda disponible en <http://localhost:8081>. Comprueba la API y que se sirve la página:
+
+```sh
+curl -fsS http://localhost:8081/api/health
+curl -fsS http://localhost:8081/ | head
+```
+
 ## Integración continua
 
 GitHub Actions ejecuta la verificación en cada pull request dirigido a `develop` y en cada push a `develop` (incluidos los merges). El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.

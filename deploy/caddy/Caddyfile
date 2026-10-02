@@ -7,9 +7,13 @@
 {$BODA_DOMAIN:localhost} {
     encode gzip zstd
 
-    reverse_proxy /api/* app:8080
+    handle /api/* {
+        reverse_proxy app:8080
+    }
 
-    root * /srv
-    try_files {path} /index.html
-    file_server
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
 }
