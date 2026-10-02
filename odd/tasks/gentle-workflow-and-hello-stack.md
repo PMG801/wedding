@@ -11,7 +11,8 @@ Make the repo comfortable to work on with the Gentle/ODD harness (project-level 
 - Non-goals: product features, registry publishing, Vitest major upgrade (deferred).
 
 ## Tasks
-- [ ] **T1 — Untrack stray binary, add project docs**: remove `backend/boda` from git, ignore it; add `AGENTS.md`, `odd/README.md`, `odd/templates/task.md`, ADR convention.
+- [x] **T1 — Untrack stray binary, add project docs**: remove `backend/boda` from git, ignore it; add `AGENTS.md`, `odd/README.md`, `odd/templates/task.md`, ADR convention.
+  - Evidence: git diff --check ok; backend/boda untracked. Commit: 492799b
 - [ ] **T2 — Backend HTTP server with `/api/health`** (test-first, `net/http`, stdlib only).
 - [ ] **T3 — Frontend fetches and shows health** (Vitest test for the API client).
 - [ ] **T4 — Docker Compose for local run** (`app` + `web`, healthchecks).
