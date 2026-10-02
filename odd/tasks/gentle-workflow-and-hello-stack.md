@@ -17,7 +17,8 @@ Make the repo comfortable to work on with the Gentle/ODD harness (project-level 
   - Evidence: RED (NewHandler undefined) -> GREEN; go test, go vet, build ok. Commit: 0baf458
 - [x] **T3 — Frontend fetches and shows health** (Vitest test for the API client).
   - Evidence: RED (./health missing) -> GREEN; npm test 7/7, build, svelte-check ok. Commit: bf91d94
-- [ ] **T4 — Docker Compose for local run** (`app` + `web`, healthchecks).
+- [x] **T4 — Docker Compose for local run** (`app` + `web`, healthchecks).
+  - Evidence: compose up --wait healthy; GET :8081/api/health -> ok; / serves SPA (RED: HTML returned for /api before Caddy handle split). Commit: 5e3be8e
 - [ ] **T5 — CI e2e smoke test + runbook/workflow docs update**.
 
 ## Evidence
