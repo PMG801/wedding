@@ -82,3 +82,9 @@ La entrega se hace al terminar mediante un `rsync` por SSH a un disco externo; l
 
 - **Oracle Always Free:** la solicitud original requiere una advertencia sobre inactividad de CPU. La definición técnica aportada no especifica la política aplicable ni un procedimiento de mitigación; hay que completar y verificarlo antes del despliegue.
 - **Ampliación del volumen:** la definición indica que el volumen de 200 GB se ampliará a más de 500 GB y que se debe preparar y probar la semana anterior. El árbol menciona `deploy/host/volume-resize.md` como destino para el procedimiento (consola, partición y sistema de archivos), pero esos pasos no están incluidos en el material entregado.
+
+## Arranque local (sin Docker)
+- Backend: `cd backend && BODA_ADDR=:8080 go run ./cmd/boda serve`
+- Frontend: `cd frontend && npm run dev` (proxy `/api` → localhost:8080 por vite.config.ts)
+- Docker Compose: `docker compose up --build` (web en :8081, app interno :8080)
+- Smoke: `scripts/smoke.sh`
