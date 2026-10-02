@@ -19,7 +19,8 @@ Make the repo comfortable to work on with the Gentle/ODD harness (project-level 
   - Evidence: RED (./health missing) -> GREEN; npm test 7/7, build, svelte-check ok. Commit: bf91d94
 - [x] **T4 — Docker Compose for local run** (`app` + `web`, healthchecks).
   - Evidence: compose up --wait healthy; GET :8081/api/health -> ok; / serves SPA (RED: HTML returned for /api before Caddy handle split). Commit: 5e3be8e
-- [ ] **T5 — CI e2e smoke test + runbook/workflow docs update**.
+- [x] **T5 — CI e2e smoke test + runbook/workflow docs update**.
+  - Evidence: scripts/smoke.sh passed locally (health + mount); CI YAML valid; smoke job needs checks. Commit: 0933d46
 
 ## Evidence
 (pending; record check results and commit ids per task)
