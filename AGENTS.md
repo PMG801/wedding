@@ -18,6 +18,7 @@ This is a wedding photo/video upload app. Before making architectural or operati
 - Frontend: `cd frontend && npm ci && npm test && npm run build`
 - Docker backend image: `docker build --target app -t boda-app .`
 - Docker web image: `docker build --target web -t boda-web .`
+- End-to-end smoke test: `scripts/smoke.sh`
 
 ## Git and delivery
 

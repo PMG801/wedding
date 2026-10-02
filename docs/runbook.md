@@ -19,7 +19,7 @@ curl -fsS http://localhost:8081/ | head
 
 GitHub Actions ejecuta la verificación en cada pull request dirigido a `develop` y en cada push a `develop` (incluidos los merges). El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.
 
-Las imágenes se exportan como archivos OCI temporales para validar la compilación: no se publican, no requieren inicio de sesión en un registry y no se despliegan. La protección de `develop` y la exigencia de que CI pase antes de permitir merges se configuran por separado en los ajustes del repositorio de GitHub.
+Las imágenes se exportan como archivos OCI temporales para validar la compilación: no se publican, no requieren inicio de sesión en un registry y no se despliegan. Después, un job independiente levanta la aplicación con Docker Compose y comprueba la API de salud y el HTML del frontend. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa `scripts/smoke.sh`; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto. La protección de `develop` y la exigencia de que CI pase antes de permitir merges se configuran por separado en los ajustes del repositorio de GitHub.
 
 ## 2.2 Configuración
 

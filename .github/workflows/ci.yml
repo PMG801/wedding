@@ -74,3 +74,14 @@ jobs:
           --tag boda-web:ci
           --output type=oci,dest=/tmp/boda-web.oci.tar
           .
+
+  smoke:
+    name: End-to-end smoke test
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run smoke test
+        run: scripts/smoke.sh
