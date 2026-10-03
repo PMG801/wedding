@@ -1,0 +1,28 @@
+services:
+  app:
+    build:
+      context: .
+      target: app
+    command: ["serve"]
+    environment:
+      BODA_ADDR: ":8080"
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/boda", "check"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      target: web
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      BODA_DOMAIN: ":80"
+    ports:
+      - "8081:80"

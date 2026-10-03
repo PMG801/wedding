@@ -53,3 +53,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 ## Información pendiente para completar el contrato
 
 Hace falta el bloque de contrato HTTP anunciado en la definición final, con formatos exactos de petición/respuesta, cabeceras, códigos de estado y error, paginación por cursor y semántica completa del endpoint de derivados.
+
+### `GET /api/health` — estado del servicio
+
+Devuelve `200 OK` con `Content-Type: application/json` y el cuerpo `{"status":"ok"}`. Los demás métodos no están permitidos y reciben `405 Method Not Allowed`.

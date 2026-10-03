@@ -1,5 +1,26 @@
 # Runbook
 
+## Ejecución local con Docker Compose
+
+Desde la raíz del repositorio, construye y arranca la aplicación y Caddy:
+
+```sh
+docker compose up --build
+```
+
+La web queda disponible en <http://localhost:8081>. Comprueba la API y que se sirve la página:
+
+```sh
+curl -fsS http://localhost:8081/api/health
+curl -fsS http://localhost:8081/ | head
+```
+
+## Integración continua
+
+GitHub Actions ejecuta la verificación en cada pull request dirigido a `develop` y en cada push a `develop` (incluidos los merges). El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.
+
+Las imágenes se exportan como archivos OCI temporales para validar la compilación: no se publican, no requieren inicio de sesión en un registry y no se despliegan. Después, un job independiente levanta la aplicación con Docker Compose y comprueba la API de salud y el HTML del frontend. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa `scripts/smoke.sh`; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto. La protección de `develop` y la exigencia de que CI pase antes de permitir merges se configuran por separado en los ajustes del repositorio de GitHub.
+
 ## 2.2 Configuración
 
 **Regla:** lo estático o secreto va en variables de entorno; lo que se cambia con la aplicación en marcha, en SQLite.
@@ -61,3 +82,9 @@ La entrega se hace al terminar mediante un `rsync` por SSH a un disco externo; l
 
 - **Oracle Always Free:** la solicitud original requiere una advertencia sobre inactividad de CPU. La definición técnica aportada no especifica la política aplicable ni un procedimiento de mitigación; hay que completar y verificarlo antes del despliegue.
 - **Ampliación del volumen:** la definición indica que el volumen de 200 GB se ampliará a más de 500 GB y que se debe preparar y probar la semana anterior. El árbol menciona `deploy/host/volume-resize.md` como destino para el procedimiento (consola, partición y sistema de archivos), pero esos pasos no están incluidos en el material entregado.
+
+## Arranque local (sin Docker)
+- Backend: `cd backend && BODA_ADDR=:8080 go run ./cmd/boda serve`
+- Frontend: `cd frontend && npm run dev` (proxy `/api` → localhost:8080 por vite.config.ts)
+- Docker Compose: `docker compose up --build` (web en :8081, app interno :8080)
+- Smoke: `scripts/smoke.sh`
