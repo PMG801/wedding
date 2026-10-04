@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/PMG801/wedding/internal/config"
+	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/httpapi"
+	"github.com/PMG801/wedding/internal/storage"
 )
 
 func main() {
@@ -39,18 +44,46 @@ func main() {
 	}
 }
 
-// runCheck performs a minimal health check for the boda service.
-// In a full deployment it validates configuration, data directory
-// accessibility, and database connectivity.
-func runCheck() error {
-	// Scaffold: verify basic filesystem accessibility.
-	if _, err := os.Getwd(); err != nil {
-		return fmt.Errorf("cannot determine working directory: %w", err)
+// initialize opens the shared, validated runtime configuration and persistence.
+func initialize(ctx context.Context) (*sql.DB, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load configuration: %w", err)
 	}
+	paths, err := storage.Initialize(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("initialize data storage: %w", err)
+	}
+	database, err := db.Open(ctx, filepath.Join(paths.Data, "boda.db"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize database: %w", err)
+	}
+	return database, nil
+}
+
+func runCheck() (resultErr error) {
+	database, err := initialize(context.Background())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := database.Close(); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("close database: %w", err)
+		}
+	}()
 	return nil
 }
 
-func runServe() error {
+func runServe() (resultErr error) {
+	database, err := initialize(context.Background())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := database.Close(); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("close database: %w", err)
+		}
+	}()
 	addr := os.Getenv("BODA_ADDR")
 	if addr == "" {
 		addr = ":8080"
