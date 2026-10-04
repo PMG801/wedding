@@ -4,6 +4,18 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+smoke_env_file="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke.XXXXXX")"
+chmod 600 "$smoke_env_file"
+cat >"$smoke_env_file" <<'EOF'
+BODA_ADDR=:8080
+BODA_DATA_DIR=/tmp
+BODA_EVENT_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+BODA_ADMIN_PASSWORD_HASH='$argon2id$v=19$m=1,t=1,p=1$YQ$YQ'
+BODA_SESSION_KEY=0123456789abcdef0123456789abcdef
+EOF
+export BODA_ENV_FILE="$smoke_env_file"
+export BODA_DOMAIN=:80
+
 cleanup() {
   local status=$?
   trap - EXIT
@@ -19,6 +31,7 @@ cleanup() {
       status=$cleanup_status
     fi
   }
+  rm -f -- "$smoke_env_file"
   exit "$status"
 }
 trap cleanup EXIT

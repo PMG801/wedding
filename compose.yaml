@@ -4,8 +4,8 @@ services:
       context: .
       target: app
     command: ["serve"]
-    environment:
-      BODA_ADDR: ":8080"
+    env_file:
+      - ${BODA_ENV_FILE:-.env}
     expose:
       - "8080"
     healthcheck:
@@ -23,6 +23,6 @@ services:
       app:
         condition: service_healthy
     environment:
-      BODA_DOMAIN: ":80"
+      BODA_DOMAIN: ${BODA_DOMAIN:-:80}
     ports:
       - "8081:80"

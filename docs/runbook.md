@@ -2,9 +2,11 @@
 
 ## Ejecución local con Docker Compose
 
-Desde la raíz del repositorio, construye y arranca la aplicación y Caddy:
+Desde la raíz del repositorio, copia `.env.example` a `.env`, reemplaza los valores de ejemplo y construye y arranca la aplicación y Caddy:
 
 ```sh
+cp .env.example .env
+# Edita .env y sustituye los valores REEMPLAZAR_...
 docker compose up --build
 ```
 
@@ -25,21 +27,26 @@ Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `d
 
 **Regla:** lo estático o secreto va en variables de entorno; lo que se cambia con la aplicación en marcha, en SQLite.
 
-| Variable | Ejemplo | Notas |
-|---|---|---|
-| `BODA_DOMAIN` | `fotos.ejemplo.es` | La usa Caddy para el certificado |
-| `BODA_DATA_DIR` | `/srv/evento` | La raíz de **un único** montaje |
-| `BODA_EVENT_TOKEN` | 32 bytes aleatorios en base64url | Va en el QR |
-| `BODA_ADMIN_PASSWORD_HASH` | bcrypt o argon2id | Se genera con `boda hash-password` |
-| `BODA_SESSION_KEY` | 32 bytes aleatorios | Firma las cookies |
-| `BODA_MAX_PHOTO_BYTES` | `52428800` | 50 MB |
-| `BODA_MAX_VIDEO_BYTES` | `1610612736` | 1,5 GB |
-| `BODA_MAX_CONCURRENT_UPLOADS` | `30` | Por encima, 503 con `Retry-After` |
-| `BODA_UPLOAD_IDLE_TIMEOUT` | `90s` | Plazo de inactividad, no de duración total |
-| `BODA_DISK_MIN_FREE_BYTES` | `16106127360` | 15 GB; por debajo se cortan las subidas automáticamente |
-| `BODA_CLEANUP_INTERVAL` | `10m` | |
-| `BODA_THUMB_FALLBACK` | `off` | Pasa a `on` en la fase 2 |
-| `BODA_LOG_LEVEL` | `info` | |
+Para ejecutar el backend, es **obligatorio** definir `BODA_DATA_DIR`, `BODA_EVENT_TOKEN`, `BODA_ADMIN_PASSWORD_HASH` y `BODA_SESSION_KEY`. Compose carga el archivo `.env` en el contenedor `app`; si falta alguna variable, `boda check` o `boda serve` falla al arrancar. Las demás variables son opcionales y usan los valores indicados cuando no se definen.
+
+Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `.env` y reemplaza los valores de ejemplo antes de arrancar. Los secretos del ejemplo no son aptos para producción. En producción, `BODA_DATA_DIR` debe ser una raíz existente y escribible dentro del contenedor, montada desde el volumen persistente del servidor.
+
+| Variable | Requerida | Ejemplo / valor predeterminado | Notas |
+|---|---|---|---|
+| `BODA_DOMAIN` | No | `:80` (Compose); `localhost` (Caddy) | Host que Caddy sirve. En producción, define el dominio público para habilitar HTTPS automático. |
+| `BODA_ADDR` | No | `:8080` | Dirección de escucha del backend; se puede sobrescribir en `.env`. |
+| `BODA_DATA_DIR` | **Sí** | `/srv/evento` | Raíz existente y escribible de **un único** montaje persistente. |
+| `BODA_EVENT_TOKEN` | **Sí** | 32 bytes aleatorios codificados en base64url | Va en el QR. |
+| `BODA_ADMIN_PASSWORD_HASH` | **Sí** | Hash bcrypt o argon2id | No es la contraseña en texto plano. |
+| `BODA_SESSION_KEY` | **Sí** | 32 bytes aleatorios | Firma las cookies. |
+| `BODA_MAX_PHOTO_BYTES` | No | `52428800` | Límite de foto: 50 MB. |
+| `BODA_MAX_VIDEO_BYTES` | No | `1610612736` | Límite de vídeo: 1,5 GB. |
+| `BODA_MAX_CONCURRENT_UPLOADS` | No | `30` | Por encima, 503 con `Retry-After`. |
+| `BODA_UPLOAD_IDLE_TIMEOUT` | No | `90s` | Plazo de inactividad, no de duración total. |
+| `BODA_DISK_MIN_FREE_BYTES` | No | `16106127360` | 15 GB; por debajo se cortan las subidas automáticamente. |
+| `BODA_CLEANUP_INTERVAL` | No | `10m` | Intervalo de limpieza y conciliación. |
+| `BODA_THUMB_FALLBACK` | No | `off` | Pasa a `on` en la fase 2. |
+| `BODA_LOG_LEVEL` | No | `info` | Valores válidos: `debug`, `info`, `warn` o `error`. |
 
 **En SQLite (tabla `settings`):** si las subidas están activas, el mensaje de bienvenida y los límites que el administrador quiera ajustar sin reiniciar.
 
