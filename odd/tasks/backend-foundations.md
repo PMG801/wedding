@@ -26,18 +26,18 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
   - Evidence: tests cover configuration defaults/overrides and invalid/missing values; required-secret errors do not include secret values; storage tests cover missing/non-directory/unwritable roots, managed children and permissions, symlinks, and filesystem-ID matching/mismatch. CLI startup integration is intentionally deferred to T3. The requested existing data root is never created implicitly.
   - Commit: `9e84734` (`feat(backend): validate configuration and data directories`).
 
-- [ ] **T2 — Add SQLite opening, migrations, and initial schema**
+- [x] **T2 — Add SQLite opening, migrations, and initial schema**
   - Route: delegated writer (multi-file behavior change); independent delegated verification; test-first.
   - Scope: add the approved pure-Go SQLite driver, configure SQLite pragmas, embed/apply versioned SQL migrations transactionally, and create the minimal `media` and `settings` schema. Application-layer settings allowlisting is documented as a requirement for future settings operations; no product keys are guessed here.
   - Files: `backend/go.mod`, `backend/go.sum`, `backend/internal/db/db.go`, `backend/internal/db/db_test.go`, `backend/internal/db/migrations.go`, `backend/internal/db/migrations/0001_initial.sql`, `docs/data-model.md`.
   - Checks: RED — `cd backend && go test ./internal/db` failed before implementation with undefined symbols; GREEN — same command passed; independent `cd backend && go test ./... && go vet ./...` passed; scoped checks found no whitespace errors.
   - Evidence: tests cover tables/columns/constraints/indexes, four simultaneous connections' pragmas, repeat-open behavior, transaction rollback, and newer-version rejection. The settings table stores no seeded values; SQL intentionally does not enumerate product keys, while data-model docs now require the application layer to enforce an allowlist and prohibit secrets.
-  - Commit: pending.
+  - Commit: `e56ca34` (`feat(backend): add SQLite migrations and initial schema`).
 
 - [ ] **T3 — Integrate shared initialization into CLI and document operations**
   - Route: delegated writer (multi-file behavior change); independent delegated verification.
   - Scope: make `boda check` and `boda serve` share configuration, storage validation, and database initialization; keep failures actionable and ensure database handles close correctly; document startup behavior and initial schema.
-  - Allowed edit surfaces: `backend/cmd/boda/**`, `docs/runbook.md`, `docs/data-model.md`.
+  - Allowed edit surfaces: `backend/cmd/boda/**`, `docs/runbook.md`.
   - Checks: CLI/bootstrap tests; `cd backend && go test ./... && go vet ./... && go build ./cmd/boda`; verify `check` fails on invalid setup and succeeds on a prepared temporary data root.
   - Evidence: pending user authorization and implementation.
   - Commit: pending explicit user authorization.
@@ -59,15 +59,16 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
 - T1 implementation and independent verification completed; committed as `9e84734` (`feat(backend): validate configuration and data directories`).
 - T2 implementation and independent verification passed; the initial verification found ambiguity about the `settings` allowlist. Resolved by documenting that the migration is generic and future application settings operations must enforce the allowlist; no product keys are invented.
 - An out-of-scope `.codegraph/` ignore rule appeared in the root `.gitignore`; the exact added rule was removed and the pre-existing untracked `.codegraph/` directory is preserved.
-- T2 implementation and independent verification passed; its `settings` allowlist boundary was clarified as an application-layer requirement for future settings operations. T2 work-unit commit is pending.
+- T2 implementation and independent verification passed; its `settings` allowlist boundary was clarified as an application-layer requirement for future settings operations. Committed as `e56ca34` (`feat(backend): add SQLite migrations and initial schema`).
+- RDD is on. ASSESS for committed T1/T2 ranges was `unassessable` because the native assessment required an explicit untracked-file declaration; independent verification passed for both. A committed-range START attempt was rejected as a candidate mismatch before mutation, so no review lineage was created and no review approval is claimed. Revisit native review at a correctly bound PR slice when authorized.
 - User-selected delivery strategy: `feature-branch-chain`; no PR or child branch has been created.
 - Commit identity: pending until each task is verified and committed.
 
 ## Review Workload and delivery
 - Strategy: `feature-branch-chain` (user selected).
-- Running authored-line count: T1 contributed 614 additions, already above the approximate 400-line target. T2 currently measures 499 changed lines before this note; one honest slicing pass found it is a cohesive DB foundation (driver, pooled pragmas, transactional migration machinery, initial schema, tests, and docs). Splitting it would leave an incomplete persistence contract, so the T2 child slice remains about 500 lines and roughly 100 over target. T3 remains a separate dependent child slice.
+- Running authored-line count: T1 contributed 614 authored additions; T2 contributed 478 authored changed lines (499 total including 21 generated `go.sum` lines). T2 is a cohesive DB foundation (driver, pooled pragmas, transactional migration machinery, initial schema, tests, and docs); one honest slicing pass found that splitting it would leave an incomplete persistence contract. Its child slice is about 100 lines over target. T3 remains a separate dependent child slice.
 - Planned boundaries: tracker/base contains T1 on `feat/backend-foundations`; child slice 1 contains T2 and depends on T1; child slice 2 contains T3 and depends on T2. T1's existing cohesive commit is not rewritten; its overage is recorded.
 - No PRs, pushes, or merges are authorized yet.
 
 ## Next step
-Commit the verified T2 database foundation after checking its authored-line count and slice fit, then implement T3 CLI startup integration.
+Assess the committed T2 work-unit boundary, then implement T3 CLI startup integration.

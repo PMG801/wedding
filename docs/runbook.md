@@ -43,7 +43,9 @@ Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `d
 
 **En SQLite (tabla `settings`):** si las subidas están activas, el mensaje de bienvenida y los límites que el administrador quiera ajustar sin reiniciar.
 
-**Validación al arrancar:** si falta un secreto, si `DATA_DIR` no existe, si no se puede escribir en él o si `tmp/` y `originals/` están en sistemas de archivos distintos, **la aplicación no arranca**. Se comprueba con `statfs` y el identificador de dispositivo.
+**Validación al arrancar:** `boda check` y `boda serve` cargan la misma configuración y validan el almacenamiento antes de continuar. Si falta un secreto, si `BODA_DATA_DIR` no existe, si no se puede escribir en él o si `tmp/` y `originals/` están en sistemas de archivos distintos, **la aplicación no arranca**. La raíz debe existir previamente (por ejemplo, como montaje); la aplicación no la crea. Dentro de ella se preparan los directorios administrados con permisos privados y se comprueba que `tmp/` y `originals/` comparten sistema de archivos.
+
+Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `synchronous=NORMAL` y claves foráneas. En la primera apertura se aplica la migración inicial, registrada en `PRAGMA user_version`, que crea las tablas `media` y `settings`. `boda check` también realiza esta inicialización y cierra la conexión al terminar, por lo que sirve para validar el despliegue antes de arrancar el servidor.
 
 ---
 
@@ -84,7 +86,18 @@ La entrega se hace al terminar mediante un `rsync` por SSH a un disco externo; l
 - **Ampliación del volumen:** la definición indica que el volumen de 200 GB se ampliará a más de 500 GB y que se debe preparar y probar la semana anterior. El árbol menciona `deploy/host/volume-resize.md` como destino para el procedimiento (consola, partición y sistema de archivos), pero esos pasos no están incluidos en el material entregado.
 
 ## Arranque local (sin Docker)
-- Backend: `cd backend && BODA_ADDR=:8080 go run ./cmd/boda serve`
-- Frontend: `cd frontend && npm run dev` (proxy `/api` → localhost:8080 por vite.config.ts)
+
+Antes de iniciar, exporta las variables obligatorias de la sección 2.2, incluidos los secretos, y configura `BODA_DATA_DIR` con una ruta existente y escribible. Por ejemplo, crea previamente la raíz de datos local; `boda` solo crea sus directorios administrados dentro de ella. No pongas secretos en la línea de comandos ni en el repositorio.
+
+Valida la configuración y prepara el almacenamiento y la base de datos:
+
+```sh
+cd backend
+BODA_ADDR=:8080 go run ./cmd/boda check
+BODA_ADDR=:8080 go run ./cmd/boda serve
+```
+
+`check` y `serve` comparten la misma inicialización; el primero no deja abierta la conexión a SQLite. Para el frontend, ejecuta `cd frontend && npm run dev` (proxy `/api` → localhost:8080 por vite.config.ts).
+
 - Docker Compose: `docker compose up --build` (web en :8081, app interno :8080)
 - Smoke: `scripts/smoke.sh`
