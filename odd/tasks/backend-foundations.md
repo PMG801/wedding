@@ -34,13 +34,13 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
   - Evidence: tests cover tables/columns/constraints/indexes, four simultaneous connections' pragmas, repeat-open behavior, transaction rollback, and newer-version rejection. The settings table stores no seeded values; SQL intentionally does not enumerate product keys, while data-model docs now require the application layer to enforce an allowlist and prohibit secrets.
   - Commit: `e56ca34` (`feat(backend): add SQLite migrations and initial schema`).
 
-- [ ] **T3 — Integrate shared initialization into CLI and document operations**
+- [x] **T3 — Integrate shared initialization into CLI and document operations**
   - Route: delegated writer (multi-file behavior change); independent delegated verification.
   - Scope: make `boda check` and `boda serve` share configuration, storage validation, and database initialization; keep failures actionable and ensure database handles close correctly; document startup behavior and initial schema.
   - Allowed edit surfaces: `backend/cmd/boda/**`, `docs/runbook.md`.
-  - Checks: CLI/bootstrap tests; `cd backend && go test ./... && go vet ./... && go build ./cmd/boda`; verify `check` fails on invalid setup and succeeds on a prepared temporary data root.
-  - Evidence: pending user authorization and implementation.
-  - Commit: pending explicit user authorization.
+  - Checks: RED — `cd backend && go test ./cmd/boda` failed before integration because `check` did not initialize or validate storage/SQLite; GREEN — same command passed after implementation; independent `cd backend && go test ./... && go vet ./... && go build ./cmd/boda` passed; `git diff --check` passed.
+  - Evidence: tests cover successful `check` initialization/migration, secret-safe invalid configuration, missing data root, invalid DB path, and listener failure in `serve`. Both commands share initialization and defer DB close. Independent verifier found no code/docs defect; direct close-path instrumentation is not present, though deferred cleanup is visible in code. Spanish runbook documents the startup requirements. Native review of this exact 179-line candidate was medium risk, approved, and acknowledged; review authority was burned. ASSESS of the committed range remains unassessable due untracked-scope declaration, so no ASSESS-derived closure is claimed.
+  - Commit: `8f0dac9` (`feat(backend): initialize storage for check and serve`).
 
 ## Acceptance criteria
 1. Startup rejects missing required configuration and an absent or unwritable data root without printing secret values.
@@ -57,18 +57,18 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
 - Current worktree has a pre-existing untracked `.codegraph/` directory; preserve it.
 - User authorization received to implement the feature and create one Conventional Commit per task.
 - T1 implementation and independent verification completed; committed as `9e84734` (`feat(backend): validate configuration and data directories`).
-- T2 implementation and independent verification passed; the initial verification found ambiguity about the `settings` allowlist. Resolved by documenting that the migration is generic and future application settings operations must enforce the allowlist; no product keys are invented.
+- T2 implementation and independent verification passed; the initial verification found ambiguity about the `settings` allowlist. Resolved by documenting that the migration is generic and future application settings operations must enforce the allowlist; no product keys are invented. Committed as `e56ca34` (`feat(backend): add SQLite migrations and initial schema`).
 - An out-of-scope `.codegraph/` ignore rule appeared in the root `.gitignore`; the exact added rule was removed and the pre-existing untracked `.codegraph/` directory is preserved.
-- T2 implementation and independent verification passed; its `settings` allowlist boundary was clarified as an application-layer requirement for future settings operations. Committed as `e56ca34` (`feat(backend): add SQLite migrations and initial schema`).
-- RDD is on. ASSESS for committed T1/T2 ranges was `unassessable` because the native assessment required an explicit untracked-file declaration; independent verification passed for both. A committed-range START attempt was rejected as a candidate mismatch before mutation, so no review lineage was created and no review approval is claimed. Revisit native review at a correctly bound PR slice when authorized.
+- RDD is on. ASSESS for committed T1/T2/T3 ranges was `unassessable` because native assessment required an explicit untracked-file declaration; independent verification passed for each task. For T1/T2, no native review closure is claimed. T3's exact worktree candidate was separately reviewed at medium risk, approved, and acknowledged; the acknowledgement burned authority. The committed-range ASSESS still did not derive closure. A committed-range START attempt for earlier candidates was rejected as a target mismatch before mutation.
 - User-selected delivery strategy: `feature-branch-chain`; no PR or child branch has been created.
-- Commit identity: pending until each task is verified and committed.
+- Implementation task commits: T1 `9e84734`, T2 `e56ca34`, T3 `8f0dac9`.
 
 ## Review Workload and delivery
 - Strategy: `feature-branch-chain` (user selected).
-- Running authored-line count: T1 contributed 614 authored additions; T2 contributed 478 authored changed lines (499 total including 21 generated `go.sum` lines). T2 is a cohesive DB foundation (driver, pooled pragmas, transactional migration machinery, initial schema, tests, and docs); one honest slicing pass found that splitting it would leave an incomplete persistence contract. Its child slice is about 100 lines over target. T3 remains a separate dependent child slice.
-- Planned boundaries: tracker/base contains T1 on `feat/backend-foundations`; child slice 1 contains T2 and depends on T1; child slice 2 contains T3 and depends on T2. T1's existing cohesive commit is not rewritten; its overage is recorded.
-- No PRs, pushes, or merges are authorized yet.
+- Running authored-line count: T1 contributed 614 additions; T2 contributed 478 authored changed lines (499 total including 21 generated `go.sum` lines); T3 contributed 179 changed lines. Total: about 1,271 authored changed lines (1,292 including `go.sum`).
+- T1 and T2 exceed the approximate 400-line target. One honest slicing pass found both are cohesive behavior units with tests/docs; splitting T1 or splitting the migration engine from the initial schema would create partial contracts. Their overages remain recorded rather than shrinking tests/docs or rewriting commits. T3 is under the target.
+- All three commits are currently on `feat/backend-foundations`; no tracker/child branches or PRs have been created. If delivery is later authorized, verify the repository's default branch and shape a tracker plus dependent task slices without rewriting these commits.
+- No PRs, pushes, or merges are authorized.
 
 ## Next step
-Assess the committed T2 work-unit boundary, then implement T3 CLI startup integration.
+All implementation tasks are complete and committed. The user may authorize delivery preparation separately; do not push, create PRs, or merge without explicit instruction.
