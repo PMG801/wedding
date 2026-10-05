@@ -21,7 +21,7 @@ curl -fsS http://localhost:8081/ | head
 
 GitHub Actions ejecuta la verificación en cada push a `develop` o `main` y al publicar una release de GitHub. El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.
 
-Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `develop`; los pushes a `main`, con la etiqueta mutable `rc`. Una release publicada genera etiquetas semver a partir de su tag (por ejemplo, `v1.0.0` genera `1.0.0`). Tras publicar las imágenes, un job independiente levanta la aplicación con Docker Compose y comprueba la API de salud y el HTML del frontend. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa `scripts/smoke.sh`; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto.
+Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `develop`; los pushes a `main`, con la etiqueta mutable `rc`. Una release publicada genera etiquetas semver a partir de su tag (por ejemplo, `v1.0.0` genera `1.0.0`). Tras publicar las imágenes, un job independiente levanta la aplicación con Docker Compose y ejecuta `scripts/smoke.sh`: comprueba la API de salud, el HTML del frontend, la entrada QR de invitado y una subida PNG autenticada con su reintento idempotente. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa el mismo script; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto.
 
 ## 2.2 Configuración
 

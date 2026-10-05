@@ -31,6 +31,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
   - HTTPS automático, con emisión y renovación de certificados.
   - Sirve archivos con peticiones Range, `ETag` y `Last-Modified` (su servidor de archivos se apoya en el mecanismo estándar de Go).
   - **Reenvía las peticiones sin guardarlas antes (streaming) por defecto.**
+  - Reenvía las rutas de API (`/api/*`) y la entrada QR (`/e/*`) al backend.
   - La configuración cabe en unas 40 líneas.
 - **Coste o complejidad:**
   - Hay que abrir los puertos 80 y 443 en **dos sitios**: la lista de seguridad de Oracle y el cortafuegos del propio sistema. Las imágenes de Ubuntu y Oracle Linux en OCI traen reglas de `iptables` restrictivas, y es un fallo clásico.
