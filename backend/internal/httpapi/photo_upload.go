@@ -16,6 +16,8 @@ type photoUploader interface {
 	SavePhoto(context.Context, string, int64, io.Reader) (upload.Media, error)
 }
 
+var errUploadIdleTimeout = errors.New("upload body idle timeout")
+
 func newPhotoUploadHandler(photos photoUploader, maxConcurrent int, maxBytes int64, idleTimeout time.Duration) http.Handler {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
@@ -67,6 +69,8 @@ func newPhotoUploadHandler(photos photoUploader, maxConcurrent int, maxBytes int
 				writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_photo_format")
 			case errors.Is(err, upload.ErrPhotoSizeMismatch), errors.Is(err, io.ErrUnexpectedEOF):
 				writeUploadError(w, http.StatusBadRequest, "photo_body_size_mismatch")
+			case errors.Is(err, errUploadIdleTimeout):
+				writeUploadError(w, http.StatusRequestTimeout, "upload_idle_timeout")
 			default:
 				writeUploadError(w, http.StatusInternalServerError, "upload_failed")
 			}
@@ -98,5 +102,10 @@ func (b *idleTimeoutBody) Read(p []byte) (int, error) {
 	if err := b.controller.SetReadDeadline(time.Now().Add(b.timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return 0, err
 	}
-	return b.body.Read(p)
+	n, err := b.body.Read(p)
+	var timeoutErr interface{ Timeout() bool }
+	if err != nil && errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+		return n, fmt.Errorf("%w: %v", errUploadIdleTimeout, err)
+	}
+	return n, err
 }

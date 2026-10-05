@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"io"
-	"os"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -146,6 +148,81 @@ func TestPhotoUploadRejectsSaturatedCapacityPromptly(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first upload did not finish after capacity was released")
 	}
+}
+
+func TestPhotoUploadIdleTimeoutOverHTTP(t *testing.T) {
+	const idleTimeout = 150 * time.Millisecond
+	handler := NewHandler(testEventToken, []byte(testSessionKey), drainingPhotoUploader{}, 1, idleTimeout, 1024)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	conn, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("connect to test server: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set client deadline: %v", err)
+	}
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	_, err = io.WriteString(conn, "PUT /api/media/123e4567-e89b-42d3-a456-426614174020 HTTP/1.1\r\n"+
+		"Host: "+server.Listener.Addr().String()+"\r\n"+
+		"Cookie: "+cookie.Name+"="+cookie.Value+"\r\n"+
+		"Content-Length: 10\r\nConnection: close\r\n\r\nabc")
+	if err != nil {
+		t.Fatalf("send partial upload request: %v", err)
+	}
+
+	started := time.Now()
+	response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodPut})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("read response after stalled upload: %v", err)
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("idle-timeout response took %s; want prompt response", elapsed)
+	}
+	if response.StatusCode != http.StatusRequestTimeout || string(responseBody) != "{\"error\":\"upload_idle_timeout\"}\n" {
+		t.Fatalf("stalled PUT response = %d %q after %s; want 408 upload_idle_timeout", response.StatusCode, responseBody, elapsed)
+	}
+
+	normalConn, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("connect for complete upload: %v", err)
+	}
+	defer normalConn.Close()
+	if err := normalConn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set complete-upload client deadline: %v", err)
+	}
+	_, err = io.WriteString(normalConn, "PUT /api/media/123e4567-e89b-42d3-a456-426614174021 HTTP/1.1\r\n"+
+		"Host: "+server.Listener.Addr().String()+"\r\n"+
+		"Cookie: "+cookie.Name+"="+cookie.Value+"\r\n"+
+		"Content-Length: 3\r\nConnection: close\r\n\r\nabc")
+	if err != nil {
+		t.Fatalf("send complete upload request: %v", err)
+	}
+	normalResponse, err := http.ReadResponse(bufio.NewReader(normalConn), &http.Request{Method: http.MethodPut})
+	if err != nil {
+		t.Fatalf("read complete-upload response: %v", err)
+	}
+	defer normalResponse.Body.Close()
+	if normalResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("complete PUT status = %d; want 201", normalResponse.StatusCode)
+	}
+}
+
+type drainingPhotoUploader struct{}
+
+func (drainingPhotoUploader) SavePhoto(_ context.Context, id string, _ int64, body io.Reader) (upload.Media, error) {
+	if _, err := io.Copy(io.Discard, body); err != nil {
+		return upload.Media{}, err
+	}
+	return upload.Media{ID: id}, nil
 }
 
 func photoRequest(id string, body []byte, cookie *http.Cookie) *http.Request {

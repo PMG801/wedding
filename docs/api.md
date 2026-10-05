@@ -33,6 +33,7 @@ Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (9
 | `405 Method Not Allowed` | Método distinto de `PUT`; el cuerpo es el texto estándar de `net/http`. |
 | `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
 | `413 Request Entity Too Large` | El tamaño declarado supera el máximo de foto (`{"error":"photo_too_large"}`). |
+| `408 Request Timeout` | El cuerpo no recibe datos durante el plazo de inactividad configurado (`{"error":"upload_idle_timeout"}`). |
 | `415 Unsupported Media Type` | La firma no es JPEG, PNG, HEIC ni HEIF (`{"error":"unsupported_photo_format"}`). |
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `500 Internal Server Error` | Error interno al persistir la foto (`{"error":"upload_failed"}`). |
