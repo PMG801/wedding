@@ -48,6 +48,19 @@ Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `
 | `BODA_THUMB_FALLBACK` | No | `off` | Pasa a `on` en la fase 2. |
 | `BODA_LOG_LEVEL` | No | `info` | Valores válidos: `debug`, `info`, `warn` o `error`. |
 
+### Generar y aprovisionar el acceso QR
+
+Genera el token del evento y la clave de sesión con un generador criptográfico del sistema. El primer comando produce los 32 bytes aleatorios del token en base64url sin padding; el segundo produce una clave de 32 caracteres ASCII (16 bytes aleatorios en hexadecimal), que satisface el requisito de `BODA_SESSION_KEY`:
+
+```sh
+BODA_EVENT_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
+BODA_SESSION_KEY=$(openssl rand -hex 16)
+```
+
+Aprovisiona ambos valores en el gestor de secretos o en el `.env` protegido del servidor, reemplazando entradas anteriores en vez de duplicarlas. No los guardes en Git, tickets, chats, capturas ni logs; limita el acceso al archivo de secretos. Configura el token antes de generar e imprimir el QR con la URL `https://<dominio>/e/<BODA_EVENT_TOKEN>`. Al entrar, la aplicación intercambia el token por una cookie de invitado y redirige a `/`; si el QR se filtra, genera un token nuevo, actualiza la configuración y vuelve a imprimirlo.
+
+La cookie de invitado siempre lleva `Secure`, HttpOnly y SameSite=Lax: no existe una excepción insegura para desarrollo. En acceso local por HTTP (`http://localhost:8081`), los navegadores pueden rechazar o no reenviar una cookie `Secure`; prueba el flujo mediante HTTPS y no rebajes el atributo.
+
 **En SQLite (tabla `settings`):** si las subidas están activas, el mensaje de bienvenida y los límites que el administrador quiera ajustar sin reiniciar.
 
 **Validación al arrancar:** `boda check` y `boda serve` cargan la misma configuración y validan el almacenamiento antes de continuar. Si falta un secreto, si `BODA_DATA_DIR` no existe, si no se puede escribir en él o si `tmp/` y `originals/` están en sistemas de archivos distintos, **la aplicación no arranca**. La raíz debe existir previamente (por ejemplo, como montaje); la aplicación no la crea. Dentro de ella se preparan los directorios administrados con permisos privados y se comprueba que `tmp/` y `originals/` comparten sistema de archivos.

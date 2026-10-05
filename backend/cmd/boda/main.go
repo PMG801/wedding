@@ -45,24 +45,24 @@ func main() {
 }
 
 // initialize opens the shared, validated runtime configuration and persistence.
-func initialize(ctx context.Context) (*sql.DB, error) {
+func initialize(ctx context.Context) (*sql.DB, config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, fmt.Errorf("load configuration: %w", err)
+		return nil, config.Config{}, fmt.Errorf("load configuration: %w", err)
 	}
 	paths, err := storage.Initialize(cfg.DataDir)
 	if err != nil {
-		return nil, fmt.Errorf("initialize data storage: %w", err)
+		return nil, config.Config{}, fmt.Errorf("initialize data storage: %w", err)
 	}
 	database, err := db.Open(ctx, filepath.Join(paths.Data, "boda.db"))
 	if err != nil {
-		return nil, fmt.Errorf("initialize database: %w", err)
+		return nil, config.Config{}, fmt.Errorf("initialize database: %w", err)
 	}
-	return database, nil
+	return database, cfg, nil
 }
 
 func runCheck() (resultErr error) {
-	database, err := initialize(context.Background())
+	database, _, err := initialize(context.Background())
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func runCheck() (resultErr error) {
 }
 
 func runServe() (resultErr error) {
-	database, err := initialize(context.Background())
+	database, cfg, err := initialize(context.Background())
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func runServe() (resultErr error) {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(),
+		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

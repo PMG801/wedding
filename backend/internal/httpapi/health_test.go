@@ -8,11 +8,11 @@ import (
 
 func TestHealth(t *testing.T) {
 	tests := []struct {
-		name               string
-		method             string
-		wantStatus         int
-		wantContentType    string
-		wantBody           string
+		name            string
+		method          string
+		wantStatus      int
+		wantContentType string
+		wantBody        string
 	}{
 		{
 			name:            "GET returns health JSON",
@@ -43,7 +43,7 @@ func TestHealth(t *testing.T) {
 			req := httptest.NewRequest(tt.method, "/api/health", nil)
 			res := httptest.NewRecorder()
 
-			NewHandler().ServeHTTP(res, req)
+			NewHandler("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", []byte("0123456789abcdef0123456789abcdef")).ServeHTTP(res, req)
 
 			if res.Code != tt.wantStatus {
 				t.Fatalf("status = %d; want %d", res.Code, tt.wantStatus)
