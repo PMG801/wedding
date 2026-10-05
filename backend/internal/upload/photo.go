@@ -18,6 +18,12 @@ import (
 	"github.com/PMG801/wedding/internal/storage"
 )
 
+var (
+	ErrUnsupportedPhoto   = errors.New("unsupported photo signature")
+	ErrPhotoSizeMismatch  = errors.New("photo body does not match declared size")
+	ErrInsufficientStorage = errors.New("minimum free-disk threshold would be exceeded")
+)
+
 type PhotoType struct{ MIME, Extension string }
 
 // DetectPhotoType recognizes JPEG, PNG, HEIC and HEIF signatures.
@@ -41,19 +47,19 @@ func DetectPhotoType(header []byte) (PhotoType, error) {
 			}
 		}
 	}
-	return PhotoType{}, errors.New("unsupported photo signature")
+	return PhotoType{}, ErrUnsupportedPhoto
 }
 
 type Options struct {
-	MaxBytes        int64
-	MaxConcurrent   int
-	MinFreeBytes    uint64
+	MaxBytes      int64
+	MaxConcurrent int
+	MinFreeBytes  uint64
 }
 
 type Media struct {
-	ID, StorageName, MIME string
+	ID, StorageName, MIME  string
 	SizeBytes, ConfirmedAt int64
-	AlreadyConfirmed bool
+	AlreadyConfirmed       bool
 }
 type idLock struct {
 	token chan struct{}
@@ -69,6 +75,7 @@ type Store struct {
 	options   Options
 	semaphore chan struct{}
 }
+
 // NewStore constructs a photo store using already-initialized paths and SQLite.
 func NewStore(database *sql.DB, paths storage.Paths, options Options) (*Store, error) {
 	if database == nil || paths.Tmp == "" || paths.Originals == "" {
@@ -82,7 +89,7 @@ func NewStore(database *sql.DB, paths storage.Paths, options Options) (*Store, e
 
 // SavePhoto validates and streams a declared-size photo into the originals directory.
 func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, body io.Reader) (Media, error) {
-	if !validID(id) {
+	if !ValidID(id) {
 		return Media{}, errors.New("media ID must be a canonical lowercase UUIDv4")
 	}
 	if body == nil {
@@ -118,7 +125,7 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	}
 	free := stat.Bavail * uint64(stat.Bsize)
 	if free < s.options.MinFreeBytes || uint64(declaredSize) > free-s.options.MinFreeBytes {
-		return Media{}, errors.New("minimum free-disk threshold would be exceeded")
+		return Media{}, ErrInsufficientStorage
 	}
 
 	partPath := filepath.Join(s.paths.Tmp, id+".part")
@@ -161,7 +168,7 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 		if err != nil && err != io.EOF {
 			return Media{}, fmt.Errorf("check photo size: %w", err)
 		}
-		return Media{}, errors.New("photo body does not match declared size")
+		return Media{}, ErrPhotoSizeMismatch
 	}
 	if err := ctx.Err(); err != nil {
 		return Media{}, err
@@ -233,7 +240,8 @@ func (s *Store) lockID(ctx context.Context, id string) (func(), error) {
 	}
 }
 
-func validID(id string) bool {
+// ValidID reports whether id is a canonical lowercase UUIDv4.
+func ValidID(id string) bool {
 	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' || id[14] != '4' {
 		return false
 	}
@@ -250,6 +258,7 @@ func validID(id string) bool {
 	}
 	return true
 }
+
 type contextReader struct {
 	ctx    context.Context
 	reader io.Reader

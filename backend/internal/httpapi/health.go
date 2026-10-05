@@ -1,11 +1,17 @@
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+
+	"github.com/PMG801/wedding/internal/auth"
+)
 
 // NewHandler builds the HTTP handler for public and guest-session routes.
-func NewHandler(eventToken string, sessionKey []byte) http.Handler {
+func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxConcurrent int, idleTimeout time.Duration, maxPhotoBytes int64) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /e/{token}", guestEntryHandler(eventToken, sessionKey))
+	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, newPhotoUploadHandler(photos, maxConcurrent, maxPhotoBytes, idleTimeout)))
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestHealth(t *testing.T) {
@@ -43,7 +44,7 @@ func TestHealth(t *testing.T) {
 			req := httptest.NewRequest(tt.method, "/api/health", nil)
 			res := httptest.NewRecorder()
 
-			NewHandler("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", []byte("0123456789abcdef0123456789abcdef")).ServeHTTP(res, req)
+			NewHandler("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", []byte("0123456789abcdef0123456789abcdef"), nil, 1, time.Second, 1024).ServeHTTP(res, req)
 
 			if res.Code != tt.wantStatus {
 				t.Fatalf("status = %d; want %d", res.Code, tt.wantStatus)

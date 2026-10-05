@@ -18,18 +18,27 @@ El administrador entra con una contraseña con hash y una cookie de sesión apar
 
 El cliente genera dos JPEG para las fotos: `_t` (unos 400 px) y `_d` (unos 2.048 px); en vídeo, genera una portada en el dispositivo. Las versiones pequeñas se suben primero, en peticiones cortas. La descripción solicitada del endpoint contempla la subida de `_t` y `_d`, pero la fuente no define la codificación de la petición, la convención exacta del cuerpo ni sus respuestas.
 
-### `PUT /api/media/{id}` — original en streaming
+### `PUT /api/media/{id}` — original de foto en streaming
 
-- El identificador lo genera el cliente. El original se sube con una petición `PUT`, con el archivo como cuerpo y su tamaño declarado.
-- Caddy reenvía sin buffering; no se fija un plazo total. El plazo de inactividad es 90 segundos.
-- La aplicación escribe en `tmp/{id}.part`, comprueba la firma del archivo y el tamaño, fuerza la escritura a disco (`fsync`), renombra, confirma en SQLite y responde 201.
-- Se comprueba el espacio disponible. Por debajo de `BODA_DISK_MIN_FREE_BYTES` (15 GB por defecto) se desactivan automáticamente las subidas.
-- El máximo predeterminado de concurrencia es 30. Por encima se responde 503 con `Retry-After`.
-- Se aceptan JPEG, HEIC, HEIF, PNG, MP4 y MOV, comprobando la firma del archivo; esto excluye SVG y HTML.
-- Si se reintenta un identificador ya confirmado, responde 200 sin volver a escribir. Si se reintenta uno que está subiéndose, el nuevo intento sustituye al antiguo.
-- El cliente declara el tamaño. Los máximos configurables de foto y vídeo son 50 MB y 1,5 GB, respectivamente.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite es `BODA_MAX_PHOTO_BYTES` (50 MB por defecto). Esta ruta admite JPEG, PNG, HEIC y HEIF mediante comprobación de firma; no admite vídeo.
 
-La definición técnica no incluye la lista exhaustiva de códigos de error ni la especificación formal de cabeceras para este endpoint.
+Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (90 segundos por defecto), no un plazo total de subida. La aplicación escribe en `tmp/{id}.part`, valida firma y tamaño, sincroniza el archivo, lo renombra y confirma en SQLite. Un identificador ya confirmado devuelve el mismo éxito idempotente sin volver a escribir.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `201 Created` | Foto nueva confirmada; cuerpo vacío. |
+| `200 OK` | Reintento de una foto ya confirmada; cuerpo vacío y sin reescritura. |
+| `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`), cuerpo vacío (`{"error":"empty_photo"}`) o tamaño real distinto del declarado (`{"error":"photo_body_size_mismatch"}`). |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `405 Method Not Allowed` | Método distinto de `PUT`; el cuerpo es el texto estándar de `net/http`. |
+| `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
+| `413 Request Entity Too Large` | El tamaño declarado supera el máximo de foto (`{"error":"photo_too_large"}`). |
+| `415 Unsupported Media Type` | La firma no es JPEG, PNG, HEIC ni HEIF (`{"error":"unsupported_photo_format"}`). |
+| `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
+| `500 Internal Server Error` | Error interno al persistir la foto (`{"error":"upload_failed"}`). |
+| `503 Service Unavailable` | Capacidad de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`. Si el servicio de subidas no está disponible, responde `{"error":"uploads_unavailable"}`. |
+
+Los errores JSON usan `Content-Type: application/json; charset=utf-8` y el formato `{"error":"<código>"}` seguido de salto de línea. La capacidad máxima simultánea se configura con `BODA_MAX_CONCURRENT_UPLOADS` (30 por defecto); una petición que encuentre todos los espacios ocupados se rechaza sin esperar ni leer su cuerpo.
 
 ### `GET /api/media` — galería
 
@@ -48,7 +57,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 - El acceso de invitado se obtiene mediante el token QR convertido en cookie firmada; el token no permanece en la URL tras la redirección.
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
-- La lista de tipos permitidos es JPEG, HEIC, HEIF, PNG, MP4 y MOV, validada mediante firma del archivo.
+- La ruta de originales de foto documentada aquí admite JPEG, HEIC, HEIF y PNG por firma; la subida de vídeo no forma parte de este endpoint.
 
 ## Información pendiente para completar el contrato
 

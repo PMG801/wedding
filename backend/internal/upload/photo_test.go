@@ -40,7 +40,7 @@ func TestDetectPhotoTypeUsesSignature(t *testing.T) {
 }
 
 func TestValidIDRequiresCanonicalUUIDv4(t *testing.T) {
-	if !validID(testID) || validID(strings.ToUpper(testID)) || validID("123e4567-e89b-12d3-a456-426614174000") || validID("not-a-uuid") {
+	if !ValidID(testID) || ValidID(strings.ToUpper(testID)) || ValidID("123e4567-e89b-12d3-a456-426614174000") || ValidID("not-a-uuid") {
 		t.Fatal("validID did not enforce canonical lowercase UUIDv4")
 	}
 }

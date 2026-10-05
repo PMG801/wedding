@@ -15,6 +15,7 @@ import (
 	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/httpapi"
 	"github.com/PMG801/wedding/internal/storage"
+	"github.com/PMG801/wedding/internal/upload"
 )
 
 func main() {
@@ -45,24 +46,24 @@ func main() {
 }
 
 // initialize opens the shared, validated runtime configuration and persistence.
-func initialize(ctx context.Context) (*sql.DB, config.Config, error) {
+func initialize(ctx context.Context) (*sql.DB, config.Config, storage.Paths, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, config.Config{}, fmt.Errorf("load configuration: %w", err)
+		return nil, config.Config{}, storage.Paths{}, fmt.Errorf("load configuration: %w", err)
 	}
 	paths, err := storage.Initialize(cfg.DataDir)
 	if err != nil {
-		return nil, config.Config{}, fmt.Errorf("initialize data storage: %w", err)
+		return nil, config.Config{}, storage.Paths{}, fmt.Errorf("initialize data storage: %w", err)
 	}
 	database, err := db.Open(ctx, filepath.Join(paths.Data, "boda.db"))
 	if err != nil {
-		return nil, config.Config{}, fmt.Errorf("initialize database: %w", err)
+		return nil, config.Config{}, storage.Paths{}, fmt.Errorf("initialize database: %w", err)
 	}
-	return database, cfg, nil
+	return database, cfg, paths, nil
 }
 
 func runCheck() (resultErr error) {
-	database, _, err := initialize(context.Background())
+	database, _, _, err := initialize(context.Background())
 	if err != nil {
 		return err
 	}
@@ -75,7 +76,7 @@ func runCheck() (resultErr error) {
 }
 
 func runServe() (resultErr error) {
-	database, cfg, err := initialize(context.Background())
+	database, cfg, paths, err := initialize(context.Background())
 	if err != nil {
 		return err
 	}
@@ -89,9 +90,15 @@ func runServe() (resultErr error) {
 		addr = ":8080"
 	}
 
+	photos, err := upload.NewStore(database, paths, upload.Options{
+		MaxBytes: cfg.MaxPhotoBytes, MaxConcurrent: cfg.MaxConcurrentUploads, MinFreeBytes: uint64(cfg.DiskMinFreeBytes),
+	})
+	if err != nil {
+		return fmt.Errorf("initialize photo uploads: %w", err)
+	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey)),
+		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
