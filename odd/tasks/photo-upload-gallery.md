@@ -16,18 +16,25 @@ The repository currently has a health-check-only API and frontend. The accepted 
 - Engram mirror topic: `odd/photo-upload-gallery/tasks`.
 
 ## Tasks
-- [ ] **T1 — Secure guest QR session** (in progress)
+- [x] **T1 — Secure guest QR session**
   - Route: one bounded `gentle-ai-worker` implementation; parent coordinates and records evidence.
   - Scope: implement `/e/{token}` validation, signed guest cookie, protected-handler seam, server dependency wiring, and safe local/runbook token provisioning; include focused tests and Spanish runbook documentation.
   - Files: `backend/internal/auth/**`, `backend/internal/httpapi/**`, `backend/internal/config/**`, `backend/cmd/boda/**`, `backend/**_test.go`, and `docs/runbook.md`.
   - Checks: focused auth/HTTP tests; `cd backend && go test ./... && go vet ./...`.
-  - Evidence: TDD RED observed with `cd backend && go test ./internal/auth ./internal/httpapi`; targeted GREEN and triangulation passed with `go test ./internal/auth ./internal/httpapi` and `go test ./internal/auth ./internal/httpapi ./cmd/boda`. Independent verification passed `cd backend && go test ./... && go vet ./...` and `git diff --check`. Verified 273 changed lines (257 additions, 16 deletions), within the review budget. Secure-cookie local use requires HTTPS; no insecure exception was added.
+  - Evidence: TDD RED observed with `cd backend && go test ./internal/auth ./internal/httpapi`; targeted GREEN and triangulation passed with `go test ./internal/auth ./internal/httpapi` and `go test ./internal/auth ./internal/httpapi ./cmd/boda`. Independent verification passed `cd backend && go test ./... && go vet ./...` and `git diff --check`. Behavior diff: 273 changed lines; full T1 commit including task tracking: 344 changed lines, within the review budget. Secure-cookie local use requires HTTPS; no insecure exception was added.
+  - Commit: `00fc950` (`feat(auth): add secure QR guest sessions`).
+- [ ] **T2a — Build the photo persistence core** (in progress)
+  - Route: one bounded `gentle-ai-worker`; tests stay with the core behavior.
+  - Scope: add the independently testable photo validation/streaming/finalization service and SQLite media repository. Use canonical client-generated UUIDv4 IDs; check JPEG/PNG/HEIC/HEIF signatures and declared size, enforce disk and core-concurrency limits, stream to same-filesystem `.part` files, sync and atomically confirm, and avoid rewriting an already-confirmed ID. Do not expose an HTTP route in this slice; HTTP auth, fail-fast 503 + `Retry-After` on saturation, request-idle handling, and status mapping belong to T2b.
+  - Files: `backend/internal/upload/**`, `backend/internal/media/**`, `backend/internal/db/**`, `backend/internal/storage/**`, and related Go tests.
+  - Checks: focused validation/storage/database tests; `cd backend && go test ./... && go vet ./...`.
+  - Evidence: initial combined T2 forecast was 550–700 changed lines; no files were changed and it was split before implementation. Core TDD RED observed (`go test ./internal/upload` failed before `DetectPhotoType` existed); GREEN passed for signature, UUID, size, cleanup, disk, persistence, and idempotency tests. Independent verification passed `cd backend && go test ./... && go vet ./...` and `git diff --check`. Core diff is exactly 400 additions. Review confirmed the core semaphore bounds active work; the documented fail-fast overload response (503 + `Retry-After`) is assigned to T2b. Blocked-reader cancellation is an HTTP-body concern for T2b; no other T2a blocker was found.
   - Commit: pending.
-- [ ] **T2 — Stream and persist photo originals**
-  - Route: one bounded `gentle-ai-worker`; tests and API documentation stay with the behavior.
-  - Scope: add the DB/media repository and photo upload endpoint with ID/type/signature/size checks, disk and concurrency limits, bounded streaming, atomic confirmation, and idempotent retries.
-  - Files: `backend/internal/upload/**`, `backend/internal/media/**`, `backend/internal/db/**`, `backend/internal/httpapi/**`, `backend/cmd/boda/**`, `backend/**_test.go`, and `docs/api.md`.
-  - Checks: focused validation/storage/HTTP tests; `cd backend && go test ./... && go vet ./...`.
+- [ ] **T2b — Expose authenticated, idempotent photo uploads**
+  - Route: one bounded `gentle-ai-worker`; HTTP tests and Spanish API contract stay with the route.
+  - Scope: wire the T2a core into authenticated `PUT /api/media/{id}` with a canonical UUIDv4 path ID and raw request body, reject saturated capacity without blocking using 503 + `Retry-After`, enforce the 90-second idle read limit and `Content-Length`, return 201 for new confirmation and 200 for a confirmed retry without rewriting, and document the request/response/error contract.
+  - Files: `backend/internal/httpapi/**`, `backend/cmd/boda/**`, related Go tests, and `docs/api.md`.
+  - Checks: focused guest-authenticated HTTP tests; `cd backend && go test ./... && go vet ./...`.
   - Evidence: pending.
   - Commit: pending.
 - [ ] **T3 — Publish derivatives and a safe guest gallery API**
@@ -63,9 +70,9 @@ The repository currently has a health-check-only API and frontend. The accepted 
 ## Progress and verification
 - Exploration confirmed that only health endpoints/UI exist; media/auth/jobs packages are placeholders. The existing configuration already defines the QR token, session key, upload limits, and storage paths.
 - User decisions: photos first; video deferred because it is not a small extension; authorize local work-unit commits; select stacked review slices toward `develop`. No branch creation, push, PR, or merge is authorized.
-- Review workload forecast: the full vertical slice spans backend, frontend, proxy, and documentation and is expected to exceed 400 changed lines; use the five bounded deliverables above and record actual slice size before each commit.
-- Progress: T1 implementation and independent full backend verification are complete; awaiting its local work-unit commit. The remaining four tasks are pending.
+- Review workload forecast: the full vertical slice spans backend, frontend, proxy, and documentation and is expected to exceed 400 changed lines; use the six bounded deliverables and record actual slice size before each commit. T2's initial forecast was 550–700 lines; it was divided into persistence-core and HTTP-integration slices before any T2 edits.
+- Progress: T1 is complete, independently verified, and committed as `00fc950`. T2a implementation and independent full backend verification pass; its exact-400-line source slice awaits its local work-unit commit. The original combined T2 estimate was 550–700 lines and caused no source edits; it was split into T2a (core, in progress) and T2b (HTTP integration, including non-blocking 503 + `Retry-After`); T3-T5 remain pending.
 - Commit identity: pending.
 
 ## Next step
-Create the T1 work-unit commit on the current feature branch, then mark T1 complete and begin T2.
+Commit the verified T2a core code alone (the slice is exactly 400 changed lines), then expose it through authenticated HTTP and the overload contract in T2b.
