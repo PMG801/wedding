@@ -45,6 +45,68 @@ func TestValidIDRequiresCanonicalUUIDv4(t *testing.T) {
 	}
 }
 
+func TestSaveDerivativeStaysPrivateUntilPhotoConfirmationAndRetriesWithoutRewrite(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 2})
+	jpeg := []byte{0xff, 0xd8, 0xff, 1, 2, 3}
+	staged, err := store.SaveDerivative(context.Background(), testID, "t", int64(len(jpeg)), bytes.NewReader(jpeg))
+	if err != nil || staged.AlreadyConfirmed {
+		t.Fatalf("first staged derivative = %+v, %v", staged, err)
+	}
+	stagedPath := filepath.Join(paths.Tmp, testID+"_t.staged")
+	if got, err := os.ReadFile(stagedPath); err != nil || !bytes.Equal(got, jpeg) {
+		t.Fatalf("private staged derivative = %v, %v; want original JPEG bytes", got, err)
+	}
+	publishedPath := filepath.Join(paths.Derived, testID+"_t.jpg")
+	if _, err := os.Stat(publishedPath); !os.IsNotExist(err) {
+		t.Fatalf("derivative before original confirmation is published: %v", err)
+	}
+
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
+	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err != nil {
+		t.Fatalf("SavePhoto() after staged derivative: %v", err)
+	}
+	before, err := os.ReadFile(publishedPath)
+	if err != nil || !bytes.Equal(before, jpeg) {
+		t.Fatalf("published derivative = %v, %v; want original JPEG bytes", before, err)
+	}
+
+	retry, err := store.SaveDerivative(context.Background(), testID, "t", 0, errorReader{})
+	if err != nil || !retry.AlreadyConfirmed {
+		t.Fatalf("derivative retry = %+v, %v; want already confirmed", retry, err)
+	}
+	after, err := os.ReadFile(publishedPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("published derivative changed on retry: %v", err)
+	}
+}
+
+func TestSaveDerivativeCannotPublishForHiddenOriginal(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
+	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err != nil {
+		t.Fatalf("SavePhoto() = %v", err)
+	}
+	if _, err := store.db.Exec("UPDATE media SET visibility = 'hidden' WHERE id = ?", testID); err != nil {
+		t.Fatal(err)
+	}
+
+	jpeg := []byte{0xff, 0xd8, 0xff, 1, 2, 3}
+	if _, err := store.SaveDerivative(context.Background(), testID, "t", int64(len(jpeg)), bytes.NewReader(jpeg)); !errors.Is(err, ErrMediaHidden) {
+		t.Fatalf("SaveDerivative() error = %v; want ErrMediaHidden", err)
+	}
+	for _, directory := range []string{paths.Tmp, paths.Derived} {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.Contains(entry.Name(), "_t") {
+				t.Fatalf("hidden media derivative was persisted in %s: %s", directory, entry.Name())
+			}
+		}
+	}
+}
+
 func TestSavePhotoConfirmsAndRetryDoesNotReadOrRewrite(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 2})
 	body := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}

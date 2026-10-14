@@ -1,4 +1,6 @@
 # Photo upload and wedding gallery
+Branch: `feat/photo-gallery-api` from `develop`; delivery: stacked review slices toward `develop`.
+Tests: `cd backend && go test ./... && go vet ./...`; frontend `cd frontend && npm test && npm run build`.
 
 ## Objective
 Deliver the first usable guest flow: enter through the wedding QR link, upload photos safely from a phone, and browse the resulting images in a polished wedding-themed frontend.
@@ -11,9 +13,17 @@ The repository currently has a health-check-only API and frontend. The accepted 
 - Follow `docs/architecture.md`, `docs/runbook.md`, and ADRs `docs/adr/0002-almacenamiento-medios-disco-local.md`, `0004-miniaturas-cliente-respaldo-diferido.md`, `0005-subida-streaming-idempotente.md`, `0006-serving-estaticos-proxy-caddy.md`, `0007-acceso-qr-seguridad.md`, `0008-limites-operativos-control-disco.md`, and `0009-limpieza-conciliacion-huerfanos.md`.
 - Guest access is QR-token-based; preserve the token-to-signed-cookie redirect and keep hidden media inaccessible. Do not add guest accounts, a public unauthenticated upload mode, admin moderation, server-side transcoding, or cloud storage.
 - Generate small JPEG derivatives in the browser when possible; retain the documented original-only fallback when decoding/derivative generation fails.
-- Delivery plan: stacked review slices toward `develop` (selected by the user). Local work-unit commits are authorized; do not create branches, push, open PRs, or merge without separate authorization.
+- Delivery plan: stacked review slices toward `develop` (selected by the user). Local work-unit commits are authorized. The user explicitly authorized local branch `feat/photo-gallery-api` from `develop` for T3. Push, PR creation, and merge remain unauthorized.
 - Keep each cohesive review slice near or under 400 changed lines; record the actual line count and dependencies as work is completed.
 - Engram mirror topic: `odd/photo-upload-gallery/tasks`.
+
+## Specs
+- **S1 — User-approved T3 contract (2026-10-14).** The user selected “Sí, aplica la propuesta” for this exact proposal:
+  > - Derivados: `POST /api/media/{id}/derived?variant=t|d`, un JPEG crudo por petición, con sesión de invitado, UUID canónico y límites actuales de tamaño/concurrencia. Permitir subirlos antes del original en almacenamiento privado; respuestas idempotentes y no reescritura.
+  > - Galería: `GET /api/media?cursor=...&limit=50`, más recientes primero, cursor estable y opaco; sólo originales confirmados y visibles. URLs de derivados opcionales si aún faltan.
+  > - Publicación: Caddy sirve sólo medios publicados según ADR-0006; los ocultos responden 404; sin transcodificación en servidor.
+  > - Conciliación: borrar parciales obsoletos; poner originales sin registro en cuarentena, nunca borrarlos; proteger subidas activas.
+- **S2 — Existing feature scope and acceptance criteria.** Preserve the accepted boundaries and apply acceptance criteria 1–6 below; video, cloud storage, server-side transcoding, guest accounts, and moderation remain out of scope.
 
 ## Tasks
 - [x] **T1 — Secure guest QR session**
@@ -44,22 +54,43 @@ The repository currently has a health-check-only API and frontend. The accepted 
   - Checks: focused live HTTP idle-timeout test; `cd backend && go test ./... && go vet ./...`.
   - Evidence: a local TCP slow-client test sends a partial body against a short test-only timeout and observed the stable `408 upload_idle_timeout` response; a complete request to the same server still returns `201`. Independent verification (Terra-model exception because the configured Sol verifier was unavailable) passed `cd backend && go test ./internal/httpapi -run '^TestPhotoUploadIdleTimeoutOverHTTP$' -count=1`, `cd backend && go test ./... && go vet ./...`, and `git diff --check ec7f958..11b41a3`. The initial sandbox cannot bind loopback sockets; the HTTP checks passed when rerun with permitted local networking. Candidate assessment against `ec7f958` is medium risk but `under_budget` (103 changed lines), so no native review preflight is due.
   - Commit: `11b41a3` (`feat(upload): implement idle timeout handling for photo uploads`).
-- [ ] **T3 — Publish derivatives and a safe guest gallery API**
-  - Route: one bounded `gentle-ai-worker`; include relevant API/Caddy/Vite contract docs and tests.
-  - Scope: accept client-generated JPEG thumbnail/detail derivatives, list visible gallery items, serve only confirmed visible media through Caddy with the accepted cache/range/security behavior, and reconcile stale partial/orphaned files without deleting unindexed originals.
-  - Files: `backend/internal/media/**`, `backend/internal/jobs/**`, `backend/internal/httpapi/**`, `backend/cmd/boda/**`, `backend/**_test.go`, `deploy/caddy/Caddyfile`, `frontend/vite.config.ts`, and `docs/api.md`.
-  - Checks: focused gallery/visibility/reconciliation tests; `cd backend && go test ./... && go vet ./...`; inspect the proxy routes for hidden-path isolation.
+- [ ] **T3a [S1] — Persist client JPEG derivatives privately** (in progress; commit pending)
+  - Route: inline parent implementation; sequential bounded work, no Writer-rule trigger. This changes persisted media and storage boundaries; follow the native ASSESS verification plan.
+  - Scope: stream one `t`/`d` JPEG derivative to private staging before its original exists, validate its signature and size, enforce disk/concurrency limits, refuse rewrites, and promote staged variants only after the original is confirmed visible.
+  - Files: `backend/internal/upload/**`, `backend/internal/storage/**`, and related Go tests.
+  - Checks: `cd backend && go test ./internal/upload ./internal/storage`; `cd backend && go test ./... && go vet ./...`; `git diff --check`.
+  - Evidence: TDD RED observed because `Store.SaveDerivative` did not exist. `cd backend && go test ./internal/upload ./internal/storage`, `go test ./...`, and `go vet ./...` pass in the current worktree. The implementation slice is 401 changed lines including task tracking (377 insertions, 24 deletions). Independent verification passed with no blocker, but identified missing direct tests for signature/body-size rejection, max-size/min-free/concurrency limits, and staged no-rewrite; add these in a second sub-400-line T3a coverage slice before closing. A transient promotion failure may leave a private staged file that an ordinary retry does not reconcile; cover recovery in T3d. ASSESS pending.
+  - Commit: pending.
+- [ ] **T3b [S1] — Expose authenticated derivative uploads** (pending; API implementation drafted but not yet closed)
+  - Route: inline parent implementation after T3a; sequential bounded work, no Writer-rule trigger.
+  - Scope: expose `POST /api/media/{id}/derived?variant=t|d` as one raw `image/jpeg` request per variant, use the guest session, canonical UUID and existing limits, share the original-upload concurrency gate, return idempotent 200/201 responses, and document all outcomes in Spanish.
+  - Files: `backend/internal/httpapi/**`, related Go tests, and `docs/api.md`.
+  - Checks: focused derivative HTTP tests; `cd backend && go test ./... && go vet ./...`; `git diff --check`.
+  - Evidence: RED observed when the route returned 404 instead of guest-auth 401 and when `application/octet-stream` was accepted with 201 instead of 415. Focused HTTP and backend tests pass in the current worktree; commit pending.
+  - Commit: pending.
+- [ ] **T3c [S1] — List and securely serve visible gallery media** (pending)
+  - Route: inline parent implementation; sequential bounded work, no Writer-rule trigger.
+  - Scope: implement newest-first cursor pagination at `GET /api/media?cursor=...&limit=50`, expose only confirmed visible items, allow missing derivative URLs, and serve published media through Caddy with ADR-0006 cache, Range, and security behavior; hidden media must return 404.
+  - Files: `backend/internal/media/**`, `backend/internal/httpapi/**`, `backend/cmd/boda/**`, related Go tests, `deploy/caddy/Caddyfile`, `frontend/vite.config.ts` if needed, and `docs/api.md`.
+  - Checks: focused pagination/visibility tests; `cd backend && go test ./... && go vet ./...`; inspect proxy routes for hidden-path isolation; `git diff --check`.
+  - Evidence: pending.
+  - Commit: pending.
+- [ ] **T3d [S1] — Reconcile stale upload artifacts safely** (pending)
+  - Route: inline parent implementation; sequential bounded work, no Writer-rule trigger.
+  - Scope: run reconciliation at the configured interval, remove stale partial files only when no upload is active, quarantine unindexed originals without deleting them, and retry promotion of staged derivatives only when their original is confirmed visible; preserve hidden/unconfirmed media and never delete confirmed media.
+  - Files: `backend/internal/jobs/**`, `backend/internal/media/**`, `backend/internal/storage/**`, `backend/internal/upload/**`, `backend/cmd/boda/**`, related Go tests, and relevant Spanish runbook/API docs.
+  - Checks: focused reconciliation/active-upload tests; `cd backend && go test ./... && go vet ./...`; `git diff --check`.
   - Evidence: pending.
   - Commit: pending.
 - [ ] **T4 — Build the browser photo upload queue**
-  - Route: one bounded `gentle-ai-worker`; keep deterministic tests with the queue/API behavior.
+  - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep deterministic tests with the queue/API behavior.
   - Scope: photo selection, browser-side thumbnail/detail generation, two-photo concurrency, upload order, per-file progress/status, bounded retries, and original-only fallback when a derivative cannot be made.
   - Files: `frontend/src/lib/upload/**`, `frontend/src/lib/media/**`, `frontend/src/lib/api/**`, and their tests.
   - Checks: `cd frontend && npm test && npm run build`.
   - Evidence: pending.
   - Commit: pending.
 - [ ] **T5 — Create the wedding photo gallery experience**
-  - Route: one bounded `gentle-ai-worker`; visual behavior and responsive states stay together.
+  - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep visual behavior and responsive states together.
   - Scope: replace the health-only screen with a responsive, wedding-appropriate guest experience for upload and browsing confirmed photos, including loading/empty/error states and accessible image detail viewing.
   - Files: `frontend/src/App.svelte`, `frontend/src/app.css`, `frontend/src/components/**`, `frontend/src/views/**`, and relevant frontend tests.
   - Checks: `cd frontend && npm test && npm run build`; run an end-to-end/browser check if the repository/runtime provides a usable browser harness, otherwise report that limitation explicitly.
@@ -76,10 +107,19 @@ The repository currently has a health-check-only API and frontend. The accepted 
 
 ## Progress and verification
 - Exploration confirmed that only health endpoints/UI exist; media/auth/jobs packages are placeholders. The existing configuration already defines the QR token, session key, upload limits, and storage paths.
-- User decisions: photos first; video deferred because it is not a small extension; authorize local work-unit commits; select stacked review slices toward `develop`. No branch creation, push, PR, or merge is authorized.
+- User decisions: photos first; video deferred because it is not a small extension; authorize local work-unit commits; select stacked review slices toward `develop`. The user authorized local branch `feat/photo-gallery-api` from `develop`; push, PR, and merge remain unauthorized.
 - Review workload forecast: the full vertical slice spans backend, frontend, proxy, and documentation and is expected to exceed 400 changed lines; use the seven bounded deliverables and record actual slice size before each commit. T2's initial forecast was 550–700 lines; it was divided into persistence-core and HTTP-integration slices before any T2 edits, with the idle-timeout test kept as a separate small slice.
-- Progress: T1 is complete and committed as `00fc950`. T2a is complete and committed as `8977132`; its native review consent was declined for that exact candidate, no lineage was created, and ASSESS reports review due (`slice_budget_reached`). T2b is complete and committed as `ec7f958` (397 changed lines); independent backend tests/vet passed, but its native consent was declined for that exact candidate and ASSESS reports review due (`high_risk`). The original combined T2 estimate was 550–700 lines and caused no source edits; it was split into T2a and T2b. T2c is complete and committed as `11b41a3` (103 changed lines): a live slow-client timeout yields 408 and a complete request remains 201; independent backend tests/vet and diff checks passed. Its medium-risk candidate is under the review slice budget, so no native review preflight is due. T3-T5 remain pending.
-- Commit identity: `11b41a3`.
+- Progress: T1 is complete and committed as `00fc950`; T2a as `8977132`; T2b as `ec7f958`; and T2c as `11b41a3`. T2c's live slow-client test, backend suite/vet, and diff checks passed; its medium-risk candidate was under the review slice budget. The latest integrated baseline is `develop` at `8aca776`, which includes the `/e/*` Caddy proxy route and the expanded guest-upload smoke script. The user authorized `feat/photo-gallery-api` from that baseline. The initial T3a draft measured 698 changed lines including the task record, so the derivative core and HTTP API are now separate review slices (T3a–T3b); gallery serving and reconciliation are T3c–T3d. T3a core is in progress. T4 and T5 remain pending.
+- Current work-unit base: `8aca776`.
 
 ## Next step
-Implement T3: publish derivatives and a safe guest gallery API.
+Complete T3a (derivative persistence), then T3b (authenticated derivative API), T3c (visible gallery and Caddy serving), and T3d (safe reconciliation); continue with T4 and T5 afterward.
+
+## Log
+- L1 — 2026-10-14, resume request (verbatim): “Toca repasar los ultimos cambios donde ya añadimos la api para subir fotos, vamos a repasar las tareas y a continuar.”
+- L2 — 2026-10-14: The user approved the displayed T3 contract proposal (“Sí, aplica la propuesta”) and explicitly authorized local branch `feat/photo-gallery-api` from `develop`; push, PR, and merge remain unauthorized.
+- L3 — 2026-10-14: Exploration showed T3 combines three independently verifiable work units; split it into T3a–T3c to keep each review slice focused and preserve the existing accepted scope.
+- L4 — 2026-10-14: T3a HTTP test-first RED observed: `TestDerivativeUploadRequiresGuestSessionAndStoresRawJPEGIdempotently` got 404 instead of the required guest-session 401 because the route does not yet exist.
+- L5 — 2026-10-14: T3a persistence test-first RED observed: `TestSaveDerivativeStaysPrivateUntilPhotoConfirmationAndRetriesWithoutRewrite` failed to build because `Store.SaveDerivative` does not yet exist.
+- L6 — 2026-10-14: The initial T3a draft measured 698 changed lines including task tracking; separated derivative persistence from HTTP route/docs, keeping the original accepted scope while reducing review-slice size.
+- L7 — 2026-10-14: Independent T3a verification passed without blockers, but requested direct tests for derivative validation, limits, concurrency, and pre-original no-rewrite. A promotion failure can leave staged bytes private; defer retry/reconciliation of those bytes to T3d, gated on visible original confirmation.

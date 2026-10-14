@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	ErrUnsupportedPhoto   = errors.New("unsupported photo signature")
-	ErrPhotoSizeMismatch  = errors.New("photo body does not match declared size")
+	ErrUnsupportedPhoto    = errors.New("unsupported photo signature")
+	ErrPhotoSizeMismatch   = errors.New("photo body does not match declared size")
 	ErrInsufficientStorage = errors.New("minimum free-disk threshold would be exceeded")
+	ErrMediaHidden         = errors.New("media is hidden")
 )
 
 type PhotoType struct{ MIME, Extension string }
@@ -57,9 +58,9 @@ type Options struct {
 }
 
 type Media struct {
-	ID, StorageName, MIME  string
-	SizeBytes, ConfirmedAt int64
-	AlreadyConfirmed       bool
+	ID, StorageName, MIME, Visibility string
+	SizeBytes, ConfirmedAt            int64
+	AlreadyConfirmed                  bool
 }
 type idLock struct {
 	token chan struct{}
@@ -102,6 +103,9 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	defer unlock()
 
 	if existing, err := s.confirmed(ctx, id); err == nil {
+		if existing.Visibility == "visible" {
+			s.promotePendingDerivatives(id)
+		}
 		existing.AlreadyConfirmed = true
 		return existing, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -196,17 +200,18 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 		return Media{}, fmt.Errorf("sync originals directory: %w", err)
 	}
 	_ = dir.Close()
-	media := Media{ID: id, StorageName: storageName, MIME: photoType.MIME, SizeBytes: declaredSize, ConfirmedAt: now.UnixMilli()}
+	media := Media{ID: id, StorageName: storageName, MIME: photoType.MIME, Visibility: "visible", SizeBytes: declaredSize, ConfirmedAt: now.UnixMilli()}
 	_, err = s.db.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, ?, ?, ?, ?)", media.ID, media.StorageName, media.MIME, media.SizeBytes, media.ConfirmedAt)
 	if err != nil {
 		return Media{}, fmt.Errorf("confirm photo in database: %w", err)
 	}
+	s.promotePendingDerivatives(id)
 	return media, nil
 }
 
 func (s *Store) confirmed(ctx context.Context, id string) (Media, error) {
 	var result Media
-	err := s.db.QueryRowContext(ctx, "SELECT id, storage_name, media_type, size_bytes, confirmed_at FROM media WHERE id = ?", id).Scan(&result.ID, &result.StorageName, &result.MIME, &result.SizeBytes, &result.ConfirmedAt)
+	err := s.db.QueryRowContext(ctx, "SELECT id, storage_name, media_type, size_bytes, confirmed_at, visibility FROM media WHERE id = ?", id).Scan(&result.ID, &result.StorageName, &result.MIME, &result.SizeBytes, &result.ConfirmedAt, &result.Visibility)
 	return result, err
 }
 func (s *Store) lockID(ctx context.Context, id string) (func(), error) {

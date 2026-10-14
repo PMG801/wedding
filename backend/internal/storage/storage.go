@@ -87,7 +87,14 @@ func Initialize(root string) (Paths, error) {
 		return Paths{}, fmt.Errorf("cannot identify filesystem for originals directory: %w", err)
 	}
 	if err := sameFilesystemIDs(tmpDevice, originalsDevice); err != nil {
-		return Paths{}, err
+		return Paths{}, fmt.Errorf("tmp and originals directories must be on the same filesystem: %w", err)
+	}
+	derivedDevice, err := filesystemDevice(paths.Derived)
+	if err != nil {
+		return Paths{}, fmt.Errorf("cannot identify filesystem for derived directory: %w", err)
+	}
+	if err := sameFilesystemIDs(tmpDevice, derivedDevice); err != nil {
+		return Paths{}, fmt.Errorf("tmp and derived directories must be on the same filesystem: %w", err)
 	}
 	return paths, nil
 }
@@ -124,9 +131,9 @@ func filesystemDevice(path string) (uint64, error) {
 	return uint64(stat.Dev), nil
 }
 
-func sameFilesystemIDs(tmp, originals uint64) error {
-	if tmp != originals {
-		return fmt.Errorf("tmp and originals directories must be on the same filesystem")
+func sameFilesystemIDs(first, second uint64) error {
+	if first != second {
+		return fmt.Errorf("filesystem IDs differ")
 	}
 	return nil
 }

@@ -34,7 +34,7 @@ func TestInitializeCreatesManagedDirectoriesRestrictively(t *testing.T) {
 			t.Errorf("managed directory %q permissions = %04o; want 0700", name, got)
 		}
 	}
-	if paths.Tmp != filepath.Join(root, "tmp") || paths.Originals != filepath.Join(root, "originals") {
+	if paths.Tmp != filepath.Join(root, "tmp") || paths.Originals != filepath.Join(root, "originals") || paths.Derived != filepath.Join(root, "derived") {
 		t.Errorf("unexpected storage paths: %+v", paths)
 	}
 }
