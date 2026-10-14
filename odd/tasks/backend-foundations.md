@@ -42,6 +42,14 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
   - Evidence: tests cover successful `check` initialization/migration, secret-safe invalid configuration, missing data root, invalid DB path, and listener failure in `serve`. Both commands share initialization and defer DB close. Independent verifier found no code/docs defect; direct close-path instrumentation is not present, though deferred cleanup is visible in code. Spanish runbook documents the startup requirements. Native review of this exact 179-line candidate was medium risk, approved, and acknowledged; review authority was burned. ASSESS of the committed range remains unassessable due untracked-scope declaration, so no ASSESS-derived closure is claimed.
   - Commit: `8f0dac9` (`feat(backend): initialize storage for check and serve`).
 
+- [ ] **T4 — Pass required runtime environment to the Compose smoke test**
+  - Route: delegated writer (Compose and shell harness); baseline configuration assertion, then focused verification.
+  - Scope: map the newly required BODA_DATA_DIR and secret settings into the app service; have `scripts/smoke.sh` supply deterministic fake test values, never real credentials. Use an existing writable in-container root for the ephemeral smoke data.
+  - Allowed edit surfaces: `compose.yaml`, `scripts/smoke.sh`.
+  - Checks: RED observed — `docker compose config --format json` with harmless test inputs showed only `BODA_ADDR` in `app.environment`; all four new required settings were absent. GREEN — pending `bash -n scripts/smoke.sh` and rendered config containing the required values. Do not run `scripts/smoke.sh` unless its Compose lifecycle is confirmed safe.
+  - Evidence: delegated verifier observed the baseline failure; no files or Docker state were changed.
+  - Commit: pending.
+
 ## Acceptance criteria
 1. Startup rejects missing required configuration and an absent or unwritable data root without printing secret values.
 2. Required child directories are created only beneath an existing data root, and `tmp/` and `originals/` are verified to be on the same filesystem.
@@ -49,6 +57,7 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
 4. The initial schema has only the agreed `media` and `settings` tables and the corresponding uniqueness/check/partial-index constraints; it has no `uploading` state or speculative product entities.
 5. Both CLI commands use the same validated initialization path, with meaningful tests and Spanish operational/data-model documentation.
 6. Go tests, vet, and build pass; failed, skipped, or unavailable checks are recorded accurately.
+7. The Compose smoke harness passes valid test-only startup configuration to the app and does not embed production credentials.
 
 ## Progress and verification
 - Exploration found an existing HTTP scaffold; configuration and migration directories are placeholders. See `backend/cmd/boda/main.go`, `backend/internal/config/`, and `backend/internal/db/migrations/`.
@@ -71,4 +80,4 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
 - No PRs, pushes, or merges are authorized.
 
 ## Next step
-All implementation tasks are complete and committed. The user may authorize delivery preparation separately; do not push, create PRs, or merge without explicit instruction.
+Implement T4 in `compose.yaml` and `scripts/smoke.sh`, then verify the rendered environment without running the Compose lifecycle.

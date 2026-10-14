@@ -6,3 +6,4 @@ backend/boda
 /boda
 *.test
 coverage/
+.env

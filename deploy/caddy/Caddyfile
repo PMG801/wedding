@@ -11,6 +11,10 @@
         reverse_proxy app:8080
     }
 
+    handle /e/* {
+        reverse_proxy app:8080
+    }
+
     handle {
         root * /srv
         try_files {path} /index.html
