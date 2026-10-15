@@ -1,0 +1,51 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/PMG801/wedding/internal/media"
+)
+
+const (
+	defaultGalleryLimit = 50
+	maxGalleryLimit     = 100
+)
+
+type mediaLister interface {
+	List(context.Context, string, int) (media.Page, error)
+}
+
+func newGalleryHandler(gallery mediaLister) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gallery == nil {
+			writeUploadError(w, http.StatusServiceUnavailable, "gallery_unavailable")
+			return
+		}
+		limit := defaultGalleryLimit
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 || parsed > maxGalleryLimit {
+				writeUploadError(w, http.StatusBadRequest, "invalid_limit")
+				return
+			}
+			limit = parsed
+		}
+		page, err := gallery.List(r.Context(), r.URL.Query().Get("cursor"), limit)
+		if err != nil {
+			if errors.Is(err, media.ErrInvalidCursor) {
+				writeUploadError(w, http.StatusBadRequest, "invalid_cursor")
+				return
+			}
+			writeUploadError(w, http.StatusInternalServerError, "gallery_failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(page)
+	})
+}

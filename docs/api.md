@@ -59,9 +59,35 @@ Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (9
 
 Los errores JSON usan `Content-Type: application/json; charset=utf-8` y el formato `{"error":"<código>"}` seguido de salto de línea. La capacidad máxima simultánea se configura con `BODA_MAX_CONCURRENT_UPLOADS` (30 por defecto); una petición que encuentre todos los espacios ocupados se rechaza sin esperar ni leer su cuerpo.
 
-### `GET /api/media` — galería
+### `GET /api/media?cursor=<opaco>&limit=50` — galería
 
-La galería usa cursores cronológicos. Los metadatos y cursores de galería se guardan en SQLite. La forma del cursor, parámetros de paginación y esquema de respuesta no están incluidos en el texto fuente.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devuelve solo medios confirmados y visibles, del más reciente al más antiguo. `limit` es opcional (entre 1 y 100; 50 por defecto). `cursor` es opcional y opaco: el cliente debe reenviar sin modificar el valor `next_cursor` de la página anterior. La paginación usa el par `(confirmed_at, id)`, por lo que las subidas nuevas no desplazan las páginas siguientes.
+
+```json
+{
+  "items": [
+    {
+      "id": "123e4567-e89b-42d3-a456-426614174000",
+      "mime": "image/heic",
+      "confirmed_at": 1790000000000,
+      "original_url": "/m/o/20260926T183012.000000000Z_123e4567-e89b-42d3-a456-426614174000.heic",
+      "thumb_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_t.jpg",
+      "detail_url": null
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+`confirmed_at` son milisegundos Unix UTC. `thumb_url` y `detail_url` valen `null` mientras la variante no esté publicada en disco; el cliente muestra entonces un marcador y nunca intenta pintar un original HEIC en un `<img>`. `next_cursor` vale `null` en la última página.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Página JSON con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`. Una galería vacía devuelve `{"items":[],"next_cursor":null}`. |
+| `400 Bad Request` | `limit` fuera de rango o no numérico (`{"error":"invalid_limit"}`), o cursor no emitido por el servidor (`{"error":"invalid_cursor"}`). |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `500 Internal Server Error` | Error interno al leer la galería (`{"error":"gallery_failed"}`). |
+| `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |
 
 ### `PATCH /api/admin/media/{id}` — moderación
 
@@ -80,7 +106,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 
 ## Información pendiente para completar el contrato
 
-La paginación y la respuesta de `GET /api/media`, así como los esquemas de moderación y ajustes administrativos, siguen pendientes de definición. El contrato de subida de derivados se especifica en su sección anterior.
+Los esquemas de moderación y ajustes administrativos siguen pendientes de definición.
 
 ### `GET /api/health` — estado del servicio
 

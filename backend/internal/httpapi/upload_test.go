@@ -28,7 +28,7 @@ const (
 
 func TestDerivativeUploadRequiresGuestSessionAndStoresRawJPEGIdempotently(t *testing.T) {
 	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, time.Second, 1024, nil)
 	const id = "123e4567-e89b-42d3-a456-426614174000"
 	body := []byte{0xff, 0xd8, 0xff, 1, 2, 3}
 
@@ -54,7 +54,7 @@ func TestDerivativeUploadRequiresGuestSessionAndStoresRawJPEGIdempotently(t *tes
 
 func TestDerivativeUploadRejectsInvalidInputsWithoutWritingFiles(t *testing.T) {
 	store, paths := newHTTPPhotoStoreWithPaths(t, upload.Options{MaxBytes: 5, MaxConcurrent: 1})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 5)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 5, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	jpeg := []byte{0xff, 0xd8, 0xff, 1, 2, 3}
 	for _, test := range []struct {
@@ -97,7 +97,7 @@ func TestDerivativeUploadRejectsInvalidInputsWithoutWritingFiles(t *testing.T) {
 
 func TestDerivativeUploadRequiresJPEGContentType(t *testing.T) {
 	store, paths := newHTTPPhotoStoreWithPaths(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 1})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, nil)
 	request := derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff}, auth.NewGuestCookie([]byte(testSessionKey), time.Now()))
 	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
@@ -115,7 +115,7 @@ func TestDerivativeUploadRequiresJPEGContentType(t *testing.T) {
 
 func TestDerivativeUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T) {
 	store, paths := newHTTPPhotoStoreWithPaths(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 1, MinFreeBytes: ^uint64(0)})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, nil)
 	request := derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff}, auth.NewGuestCookie([]byte(testSessionKey), time.Now()))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -132,7 +132,7 @@ func TestDerivativeUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T)
 
 func TestDerivativeUploadSharesCapacityWithOriginalUploads(t *testing.T) {
 	photos := &blockingPhotoDerivativeUploader{started: make(chan struct{}), release: make(chan struct{})}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	firstDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
@@ -165,7 +165,7 @@ func TestDerivativeUploadSharesCapacityWithOriginalUploads(t *testing.T) {
 
 func TestPhotoUploadRequiresGuestSessionAndStoresRawBodyIdempotently(t *testing.T) {
 	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, time.Second, 1024, nil)
 	const id = "123e4567-e89b-42d3-a456-426614174000"
 	body := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
 
@@ -190,7 +190,7 @@ func TestPhotoUploadRequiresGuestSessionAndStoresRawBodyIdempotently(t *testing.
 
 func TestPhotoUploadValidatesIDLengthAndPhotoSignature(t *testing.T) {
 	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 9, MaxConcurrent: 1})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 9)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 9, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	for _, test := range []struct {
 		name           string
@@ -236,7 +236,7 @@ func TestPhotoUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, photoRequest("123e4567-e89b-42d3-a456-426614174000", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, cookie))
@@ -251,7 +251,7 @@ func TestPhotoUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T) {
 
 func TestPhotoUploadRejectsSaturatedCapacityPromptly(t *testing.T) {
 	photos := &blockingPhotoUploader{started: make(chan struct{}), release: make(chan struct{})}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	firstDone := make(chan struct{})
 	go func() {
@@ -290,7 +290,7 @@ func TestPhotoUploadRejectsSaturatedCapacityPromptly(t *testing.T) {
 
 func TestPhotoUploadIdleTimeoutOverHTTP(t *testing.T) {
 	const idleTimeout = 150 * time.Millisecond
-	handler := NewHandler(testEventToken, []byte(testSessionKey), drainingPhotoUploader{}, 1, idleTimeout, 1024)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), drainingPhotoUploader{}, 1, idleTimeout, 1024, nil)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

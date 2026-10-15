@@ -168,7 +168,12 @@ func (s *Store) stagedDerivativePath(id, variant string) string {
 }
 
 func (s *Store) derivativePath(id, variant string) string {
-	return filepath.Join(s.paths.Derived, id+"_"+variant+".jpg")
+	return filepath.Join(s.paths.Derived, DerivativeFileName(id, variant))
+}
+
+// DerivativeFileName is the published file name of one JPEG derivative variant.
+func DerivativeFileName(id, variant string) string {
+	return id + "_" + variant + ".jpg"
 }
 
 func (s *Store) promotePendingDerivatives(id string) {

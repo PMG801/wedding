@@ -10,7 +10,7 @@ import (
 
 func TestGuestQRExchangeRedirectsAndDoesNotExposeToken(t *testing.T) {
 	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	handler := NewHandler(token, []byte("0123456789abcdef0123456789abcdef"), nil, 1, time.Second, 1024)
+	handler := NewHandler(token, []byte("0123456789abcdef0123456789abcdef"), nil, 1, time.Second, 1024, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/e/"+token, nil))
 
@@ -31,7 +31,7 @@ func TestGuestQRExchangeRedirectsAndDoesNotExposeToken(t *testing.T) {
 
 func TestGuestQRExchangeRejectsWrongTokenAndHealthStaysPublic(t *testing.T) {
 	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	handler := NewHandler(token, []byte("0123456789abcdef0123456789abcdef"), nil, 1, time.Second, 1024)
+	handler := NewHandler(token, []byte("0123456789abcdef0123456789abcdef"), nil, 1, time.Second, 1024, nil)
 
 	wrongToken := httptest.NewRecorder()
 	handler.ServeHTTP(wrongToken, httptest.NewRequest(http.MethodGet, "/e/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", nil))

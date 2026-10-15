@@ -14,6 +14,7 @@ import (
 	"github.com/PMG801/wedding/internal/config"
 	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/httpapi"
+	"github.com/PMG801/wedding/internal/media"
 	"github.com/PMG801/wedding/internal/storage"
 	"github.com/PMG801/wedding/internal/upload"
 )
@@ -96,9 +97,13 @@ func runServe() (resultErr error) {
 	if err != nil {
 		return fmt.Errorf("initialize photo uploads: %w", err)
 	}
+	gallery, err := media.NewGallery(database, paths)
+	if err != nil {
+		return fmt.Errorf("initialize gallery: %w", err)
+	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes),
+		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
