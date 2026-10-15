@@ -1,5 +1,7 @@
 # ADR-0006 · Serving, streaming y descargas: el proxy sirve directamente
 
+- **Estado:** Aceptado; sustituido en parte por [ADR-0011](0011-medios-tras-sesion-invitado.md) en la autorización y la caché de `/m/*`.
+
 - **Contexto:** hay que entregar miniaturas, fotos y vídeos con peticiones Range sin cargar la aplicación. Lo ocultado debe dejar de estar accesible.
 - **Decisión:**
   - Caddy sirve `/m/o/*` (`originals/`) y `/m/d/*` (`derived/`) en solo lectura.

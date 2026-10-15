@@ -4,7 +4,7 @@ Los ADR documentan decisiones arquitectónicas duraderas. Se nombran `NNNN-slug.
 
 ## Estados
 
-Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido** o **Retirado**. Un ADR sustituido debe enlazar el ADR que lo reemplaza; uno retirado explica por qué deja de aplicar. Los ADR existentes 0001–0010 se consideran aceptados.
+Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido** o **Retirado**. Un ADR sustituido debe enlazar el ADR que lo reemplaza; uno retirado explica por qué deja de aplicar. Los ADR existentes 0001–0010 se consideran aceptados; ADR-0006 está sustituido en parte por ADR-0011.
 
 ## Índice
 
@@ -18,3 +18,4 @@ Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido*
 - [ADR-0008 · Límites operativos y control del disco](0008-limites-operativos-control-disco.md)
 - [ADR-0009 · Limpieza y conciliación](0009-limpieza-conciliacion-huerfanos.md)
 - [ADR-0010 · Entrega y copia: fuera de la aplicación](0010-entrega-rsync-fuera-aplicacion.md)
+- [ADR-0011 · Los medios publicados exigen la sesión de invitado](0011-medios-tras-sesion-invitado.md)

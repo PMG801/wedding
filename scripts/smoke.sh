@@ -8,7 +8,7 @@ smoke_env_file="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke.XXXXXX")"
 chmod 600 "$smoke_env_file"
 cat >"$smoke_env_file" <<'EOF'
 BODA_ADDR=:8080
-BODA_DATA_DIR=/tmp
+BODA_DATA_DIR=/srv/evento
 BODA_EVENT_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 BODA_ADMIN_PASSWORD_HASH='$argon2id$v=19$m=1,t=1,p=1$YQ$YQ'
 BODA_SESSION_KEY=0123456789abcdef0123456789abcdef
@@ -21,6 +21,8 @@ smoke_event_token=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 smoke_photo_id=123e4567-e89b-42d3-a456-426614174000
 smoke_photo_file="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-photo.XXXXXX")"
 smoke_guest_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-guest.XXXXXX")"
+smoke_media_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-headers.XXXXXX")"
+smoke_media_body="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-body.XXXXXX")"
 
 cleanup() {
   local status=$?
@@ -37,7 +39,7 @@ cleanup() {
       status=$cleanup_status
     fi
   }
-  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers"
+  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers" "$smoke_media_headers" "$smoke_media_body"
   exit "$status"
 }
 trap cleanup EXIT
@@ -111,3 +113,80 @@ if [[ "$retry_status" != 200 ]]; then
   exit 1
 fi
 echo 'Idempotent photo retry passed.'
+
+unauthenticated_gallery_status="$(curl -sS -o /dev/null -w '%{http_code}' "$smoke_base_url/api/media")"
+if [[ "$unauthenticated_gallery_status" != 401 ]]; then
+  echo "Unauthenticated gallery returned HTTP $unauthenticated_gallery_status; want 401." >&2
+  exit 1
+fi
+
+gallery_response="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media")"
+original_url="$(printf '%s' "$gallery_response" | grep -o '"original_url":"[^"]*"' | head -n 1 | cut -d '"' -f 4)"
+if [[ "$gallery_response" != *"\"id\":\"$smoke_photo_id\""* || "$original_url" != /m/o/* ]]; then
+  echo "Gallery did not list the uploaded photo with an original URL: $gallery_response" >&2
+  exit 1
+fi
+echo 'Authenticated gallery listing passed.'
+
+unauthenticated_media_status="$(curl -sS -o /dev/null -w '%{http_code}' "$smoke_base_url$original_url")"
+if [[ "$unauthenticated_media_status" != 401 ]]; then
+  echo "Unauthenticated media file returned HTTP $unauthenticated_media_status; want 401." >&2
+  exit 1
+fi
+
+media_status="$(curl -sS -D "$smoke_media_headers" -o "$smoke_media_body" -w '%{http_code}' \
+  -H "Cookie: $guest_cookie" -H 'Accept-Encoding: gzip, zstd' "$smoke_base_url$original_url")"
+if [[ "$media_status" != 200 ]] || ! cmp -s "$smoke_photo_file" "$smoke_media_body"; then
+  echo "Authenticated media file returned HTTP $media_status or bytes that differ from the upload." >&2
+  exit 1
+fi
+if ! grep -qi '^cache-control: private, max-age=31536000, immutable' "$smoke_media_headers" ||
+  ! grep -qi '^x-content-type-options: nosniff' "$smoke_media_headers" ||
+  grep -qi '^content-encoding:' "$smoke_media_headers"; then
+  echo 'Media file headers are missing immutable caching or nosniff, or the file was compressed.' >&2
+  cat "$smoke_media_headers" >&2
+  exit 1
+fi
+echo 'Authenticated media file passed.'
+
+download_disposition="$(curl -sS -o /dev/null -D - -H "Cookie: $guest_cookie" "$smoke_base_url$original_url?dl=1" |
+  tr -d '\r' | awk 'tolower($1) == "content-disposition:" { print $2 }')"
+if [[ "$download_disposition" != attachment* ]]; then
+  echo "Media download did not set Content-Disposition attachment (got '$download_disposition')." >&2
+  exit 1
+fi
+echo 'Media download disposition passed.'
+
+for path in /m/o/missing.jpg /m/d/missing_t.jpg /m/hidden/x.jpg /m/o/../data/boda.db; do
+  missing_status="$(curl -sS --path-as-is -o /dev/null -w '%{http_code}' -H "Cookie: $guest_cookie" "$smoke_base_url$path")"
+  if [[ "$missing_status" != 404 ]]; then
+    echo "Media path $path returned HTTP $missing_status; want 404." >&2
+    exit 1
+  fi
+done
+echo 'Unpublished media paths passed.'
+
+range_status="$(curl -sS -o /dev/null -w '%{http_code} %{size_download}' -H "Cookie: $guest_cookie" -H 'Range: bytes=0-3' \
+  "$smoke_base_url$original_url")"
+if [[ "$range_status" != '206 4' ]]; then
+  echo "Media Range request returned '$range_status'; want '206 4'." >&2
+  exit 1
+fi
+echo 'Media Range request passed.'
+
+# A minimal HEIC signature is enough: the server checks the ftyp brand only.
+smoke_heic_id=123e4567-e89b-42d3-a456-426614174001
+printf '\000\000\000\030ftypheic\000\000\000\000mif1heic' >"$smoke_photo_file"
+heic_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H "Cookie: $guest_cookie" --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_heic_id")"
+if [[ "$heic_upload_status" != 201 ]]; then
+  echo "HEIC upload returned HTTP $heic_upload_status; want 201." >&2
+  exit 1
+fi
+heic_url="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media?limit=1" | grep -o '"original_url":"[^"]*"' | cut -d '"' -f 4)"
+heic_type="$(curl -sS -o /dev/null -w '%{content_type}' -H "Cookie: $guest_cookie" "$smoke_base_url$heic_url")"
+if [[ "$heic_url" != *.heic || "$heic_type" != image/heic ]]; then
+  echo "HEIC media '$heic_url' was served as '$heic_type'; want image/heic." >&2
+  exit 1
+fi
+echo 'HEIC content type passed.'

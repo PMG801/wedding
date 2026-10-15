@@ -89,6 +89,19 @@ La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devue
 | `500 Internal Server Error` | Error interno al leer la galería (`{"error":"gallery_failed"}`). |
 | `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |
 
+### `GET /api/session` — comprobación de sesión de invitado
+
+Responde `204 No Content` con `Cache-Control: no-store` si la cookie `guest_session` es válida, y `401 Unauthorized` (texto `guest session required\n`) si falta, está alterada o ha caducado. Caddy la usa con `forward_auth` para proteger los medios, y el frontend puede usarla para saber si el invitado ya entró por el QR.
+
+### `GET /m/o/{archivo}` y `GET /m/d/{archivo}` — medios publicados
+
+Los sirve Caddy, no la aplicación (ADR-0006 y ADR-0011). Exigen la sesión de invitado: sin ella responden `401`. `/m/o/` sirve los originales visibles y `/m/d/` los derivados JPEG publicados. Las URL no se construyen en el cliente; se toman de `original_url`, `thumb_url` y `detail_url` de la galería.
+
+- `200 OK` con `Cache-Control: private, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`, sin compresión, y `Content-Type: image/heic` o `image/heif` para esas extensiones.
+- `206 Partial Content` para peticiones `Range`.
+- `?dl=1` añade `Content-Disposition: attachment` para forzar la descarga.
+- `404 Not Found` para archivos ocultos, aún no publicados o fuera de `originals/` y `derived/`; esta respuesta no se marca como cacheable.
+
 ### `PATCH /api/admin/media/{id}` — moderación
 
 Las rutas `/api/admin/*` exigen la sesión de administrador. Ocultar un medio mueve el archivo a `hidden/` (no servido) y actualiza su estado en SQLite; su URL da 404 al instante. La aplicación permite al administrador ver los elementos ocultos. El cuerpo exacto para ocultar/mostrar y los códigos de respuesta no se especifican en la fuente.

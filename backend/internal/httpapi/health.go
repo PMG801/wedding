@@ -15,6 +15,10 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, idleTimeout)))
 	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, newDerivativeUploadHandler(photos, capacity, maxPhotoBytes, idleTimeout)))
 	mux.Handle("GET /api/media", auth.RequireGuestSession(sessionKey, newGalleryHandler(gallery)))
+	mux.Handle("GET /api/session", auth.RequireGuestSession(sessionKey, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+	})))
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

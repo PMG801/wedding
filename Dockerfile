@@ -24,12 +24,15 @@ COPY backend/go.mod ./
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /out/boda ./cmd/boda
+# Empty data root owned by nonroot so a fresh named volume inherits its owner.
+RUN mkdir -p /out/evento
 
 # -----------------------
 # Target: app
 # -----------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS app
 COPY --from=backend-build --chown=nonroot:nonroot /out/boda /usr/local/bin/boda
+COPY --from=backend-build --chown=nonroot:nonroot /out/evento /srv/evento
 EXPOSE 8080
 USER nonroot
 ENTRYPOINT ["/usr/local/bin/boda"]

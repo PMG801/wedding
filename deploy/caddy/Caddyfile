@@ -4,10 +4,27 @@
     }
 }
 
-{$BODA_DOMAIN:localhost} {
-    encode gzip zstd
+(published_file) {
+    # Only existing files are cacheable, so a hidden or not-yet-published
+    # file never leaves a long-lived cached 404 behind.
+    @found file
+    header @found Cache-Control "private, max-age=31536000, immutable"
+    @heic path *.heic
+    header @heic {
+        Content-Type image/heic
+        defer
+    }
+    @heif path *.heif
+    header @heif {
+        Content-Type image/heif
+        defer
+    }
+    file_server
+}
 
+{$BODA_DOMAIN:localhost} {
     handle /api/* {
+        encode gzip zstd
         reverse_proxy app:8080
     }
 
@@ -15,7 +32,32 @@
         reverse_proxy app:8080
     }
 
+    # Published media (ADR-0006, ADR-0011): only originals/ and derived/ are
+    # mounted, read-only; hidden/ is never reachable. Every file requires a
+    # valid guest session, checked by the app before Caddy serves the bytes.
+    # No compression: media is already compressed and Range must stay exact.
+    handle /m/* {
+        forward_auth app:8080 {
+            uri /api/session
+        }
+        header X-Content-Type-Options nosniff
+
+        @download query dl=1
+        header @download Content-Disposition attachment
+
+        handle_path /m/o/* {
+            root * /media/originals
+            import published_file
+        }
+        handle_path /m/d/* {
+            root * /media/derived
+            import published_file
+        }
+        respond 404
+    }
+
     handle {
+        encode gzip zstd
         root * /srv
         try_files {path} /index.html
         file_server

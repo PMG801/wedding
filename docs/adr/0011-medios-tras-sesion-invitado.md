@@ -1,0 +1,21 @@
+# ADR-0011 · Los medios publicados exigen la sesión de invitado
+
+- **Estado:** Aceptado. Sustituye en parte a [ADR-0006](0006-serving-estaticos-proxy-caddy.md): la autorización y la caché de `/m/*`. El resto de ADR-0006 sigue vigente.
+- **Contexto:**
+  - ADR-0006 servía `/m/o/*` y `/m/d/*` sin autenticación y se apoyaba en que los nombres de archivo no se pueden adivinar.
+  - Los novios exigen que nadie sin el QR pueda ver ni subir contenido: "Nadie que no escanee o tenga el enlace con esa key debería poder interactuar con la galería ni subir contenido."
+  - ADR-0006 ya preveía el camino: "Si algún día hiciera falta, se pasa a `forward_auth` sin cambiar el almacenamiento."
+- **Decisión:**
+  - Caddy protege todo `/m/*` con `forward_auth` hacia `GET /api/session`, que responde `204` con una cookie de invitado válida y `401` sin ella. Caddy sigue sirviendo los bytes; la aplicación solo valida la cookie (un HMAC, sin E/S de disco).
+  - `Cache-Control: private, max-age=31536000, immutable`, y solo en archivos que existen. Un 404 (oculto o aún no publicado) no se guarda en la caché, de modo que un medio que se vuelve a mostrar reaparece.
+  - Se mantiene `X-Content-Type-Options: nosniff`, las respuestas sin compresión, `?dl=1` con `Content-Disposition: attachment` y un `Content-Type` explícito para `.heic` y `.heif`.
+  - Compose usa un único volumen persistente `event-data` montado en `/srv/evento` dentro de `app`. `web` monta solo los subdirectorios `originals/` y `derived/`, en solo lectura.
+- **Motivo determinante:** es un requisito explícito del producto y no cambia el almacenamiento ni el camino de los bytes.
+- **Descartado:**
+  - Mantener las URL públicas: incumple el requisito.
+  - Que la aplicación sirva los archivos: cada byte pasaría dos veces por el sistema.
+  - URL firmadas con caducidad: más código y caché peor, sin ventaja frente a la cookie que ya existe.
+- **Consecuencias:**
+  - Cada petición de un medio hace una subpetición ligera a la aplicación. Con este tráfico es despreciable, pero si `app` cae no se sirven medios (la galería tampoco funcionaría sin la API).
+  - Compartir una URL de un medio ya no sirve a quien no tenga la cookie.
+  - Lo ya guardado en la caché de un navegador sigue sin poder retirarse; es una caché privada del invitado autorizado.
