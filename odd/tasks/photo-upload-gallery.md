@@ -95,10 +95,12 @@ The repository currently has a health-check-only API and frontend. The accepted 
   - Scope: `lib/api/media.ts` (raw PUT/POST upload requests, XHR transport with upload progress, `Retry-After` and JSON error code; typed `fetchGalleryPage` with shape validation and a distinct `GuestSessionRequiredError`), `lib/media/derivatives.ts` (EXIF-aware `createImageBitmap`, 400/2048 px JPEG via canvas, `null` on any decode/encode failure for the original-only fallback).
   - Evidence: RED `npx vitest run src/lib/api/media.test.ts src/lib/media` failed to resolve `./media` and `./derivatives`; GREEN 19/19 frontend tests, `svelte-check` 0 errors, `npm run build` OK. The XHR transport and canvas codec are browser-only and exercised in T5's manual/device checks.
   - Commit: `feat(frontend): add media API client and browser JPEG derivatives` (hash recorded in the next task commit). T3d correction commit: `34bc177`.
-- [ ] **T4b [S6] — Browser photo upload queue** (next)
+- [x] **T4b [S6] — Browser photo upload queue**
   - Route: inline parent implementation.
   - Scope: pure TypeScript queue with injectable transport, derivative maker, ID generator and sleep: two concurrent photos in selection order, derivatives (t, d) before the original, bounded retries (5, exponential backoff honoring `Retry-After`), original-only fallback, per-file progress/status/error codes, client-side type/size rejection, manual retry reusing the same media ID.
   - Checks: `cd frontend && npm test && npm run build`.
+  - Evidence: RED `npx vitest run src/lib/upload` failed to resolve `./queue`; GREEN 29/29 frontend tests, `svelte-check` 0 errors, `npm run build` OK. Tests cover t/d/original order with one ID, original-only fallback, two-at-a-time FIFO start, backoff 1s/5s(Retry-After)/4s, give-up after 5 retries then manual retry with the same ID, permanent 401/507/415, skipped rejected derivative, session expiry during a derivative, client-side type/empty/size rejection with extension fallback, and monotonic progress reaching 1.
+  - Commit: `feat(frontend): add browser photo upload queue` (hash recorded in the next task commit). T4a commit: `d393cdd`.
 - [ ] **T5 — Create the wedding photo gallery experience**
   - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep visual behavior and responsive states together.
   - Scope: replace the health-only screen with a responsive, wedding-appropriate guest experience for upload and browsing confirmed photos, including loading/empty/error states and accessible image detail viewing.
