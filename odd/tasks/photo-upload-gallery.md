@@ -90,13 +90,15 @@ The repository currently has a health-check-only API and frontend. The accepted 
   - Evidence: RED `go test ./internal/upload ./internal/jobs` failed to build (`store.Reconcile`, `Every` undefined); GREEN after. Tests cover abandoned photo/derivative partials removed, active partial kept, unindexed and unparsable originals quarantined with bytes intact, an original being confirmed (lock held) kept, indexed originals untouched, quarantine never overwritten, staged derivative promoted only for visible originals (hidden and unconfirmed kept private), and `Every` running at startup, on interval, and stopping on cancel. `cd backend && go test ./... && go vet ./...`, `gofmt -l`, `git diff --check` pass.
   - Independent verification (T3e and T3d, 2026-10-15): T3e PASS for S3/S4 with no blockers (Compose smoke plus raw-path, cookie, cache-header and mount probes); advisories only (path normalization falls through to the SPA, `immutable` also on 308/405 for existing files, first duplicate `guest_session` cookie wins, browser cache keeps already-fetched media). T3d: one blocker — `promoteStagedIfVisible` swallowed SQLite errors. Fixed test-first (RED `TestReconcileReportsDatabaseErrorsForStagedDerivatives` returned nil; GREEN after) in a bounded correction commit. Race probes (150 iterations SavePhoto/SaveDerivative vs Reconcile, 32x2000 lock stress) passed under `-race`.
   - Commits: `f31a089` (`feat(upload): reconcile abandoned and unindexed upload artifacts`); correction `fix(upload): report database errors for staged derivatives`. T3e commit: `53f60be`.
-- [ ] **T4 — Build the browser photo upload queue**
-  - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep deterministic tests with the queue/API behavior.
-  - Scope: photo selection, browser-side thumbnail/detail generation, two-photo concurrency, upload order, per-file progress/status, bounded retries, and original-only fallback when a derivative cannot be made.
-  - Files: `frontend/src/lib/upload/**`, `frontend/src/lib/media/**`, `frontend/src/lib/api/**`, and their tests.
+- [x] **T4a [S3, S6] — Browser media API client and JPEG derivatives**
+  - Route: inline parent implementation.
+  - Scope: `lib/api/media.ts` (raw PUT/POST upload requests, XHR transport with upload progress, `Retry-After` and JSON error code; typed `fetchGalleryPage` with shape validation and a distinct `GuestSessionRequiredError`), `lib/media/derivatives.ts` (EXIF-aware `createImageBitmap`, 400/2048 px JPEG via canvas, `null` on any decode/encode failure for the original-only fallback).
+  - Evidence: RED `npx vitest run src/lib/api/media.test.ts src/lib/media` failed to resolve `./media` and `./derivatives`; GREEN 19/19 frontend tests, `svelte-check` 0 errors, `npm run build` OK. The XHR transport and canvas codec are browser-only and exercised in T5's manual/device checks.
+  - Commit: `feat(frontend): add media API client and browser JPEG derivatives` (hash recorded in the next task commit). T3d correction commit: `34bc177`.
+- [ ] **T4b [S6] — Browser photo upload queue** (next)
+  - Route: inline parent implementation.
+  - Scope: pure TypeScript queue with injectable transport, derivative maker, ID generator and sleep: two concurrent photos in selection order, derivatives (t, d) before the original, bounded retries (5, exponential backoff honoring `Retry-After`), original-only fallback, per-file progress/status/error codes, client-side type/size rejection, manual retry reusing the same media ID.
   - Checks: `cd frontend && npm test && npm run build`.
-  - Evidence: pending.
-  - Commit: pending.
 - [ ] **T5 — Create the wedding photo gallery experience**
   - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep visual behavior and responsive states together.
   - Scope: replace the health-only screen with a responsive, wedding-appropriate guest experience for upload and browsing confirmed photos, including loading/empty/error states and accessible image detail viewing.
