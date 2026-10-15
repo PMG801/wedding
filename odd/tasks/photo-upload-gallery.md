@@ -101,13 +101,15 @@ The repository currently has a health-check-only API and frontend. The accepted 
   - Checks: `cd frontend && npm test && npm run build`.
   - Evidence: RED `npx vitest run src/lib/upload` failed to resolve `./queue`; GREEN 29/29 frontend tests, `svelte-check` 0 errors, `npm run build` OK. Tests cover t/d/original order with one ID, original-only fallback, two-at-a-time FIFO start, backoff 1s/5s(Retry-After)/4s, give-up after 5 retries then manual retry with the same ID, permanent 401/507/415, skipped rejected derivative, session expiry during a derivative, client-side type/empty/size rejection with extension fallback, and monotonic progress reaching 1.
   - Commit: `feat(frontend): add browser photo upload queue` (hash recorded in the next task commit). T4a commit: `d393cdd`.
-- [ ] **T5 — Create the wedding photo gallery experience**
-  - Route: inline by default; re-evaluate Writer-rule triggers when the task starts. Keep visual behavior and responsive states together.
-  - Scope: replace the health-only screen with a responsive, wedding-appropriate guest experience for upload and browsing confirmed photos, including loading/empty/error states and accessible image detail viewing.
-  - Files: `frontend/src/App.svelte`, `frontend/src/app.css`, `frontend/src/components/**`, `frontend/src/views/**`, and relevant frontend tests.
-  - Checks: `cd frontend && npm test && npm run build`; run an end-to-end/browser check if the repository/runtime provides a usable browser harness, otherwise report that limitation explicitly.
-  - Evidence: pending.
-  - Commit: pending.
+- [x] **T5a [S3, S5, S6] — Gallery feed, routing and Spanish copy**
+  - Route: inline parent implementation.
+  - Scope: `lib/gallery/feed.ts` (cursor paging, single in-flight load, head refresh that prepends new photos, refreshes derivative URLs, restarts when no overlap, error/session states), `lib/gallery/view.ts` (thumbnail/detail selection that never paints HEIC originals, `?dl=1` download with dated name, `#/foto/{id}` hash routing, `/api/session` check), `lib/i18n/es.ts` (all guest copy and upload error messages in Spanish).
+  - Evidence: RED `npx vitest run src/lib/gallery src/lib/i18n` failed to resolve `./feed`, `./view`, `./es`; GREEN 42/42 frontend tests, `svelte-check` 0 errors.
+  - Commit: `feat(frontend): add gallery feed, routing and Spanish copy` (hash recorded in the next task commit). T4b commit: `7cf8f8e`.
+- [ ] **T5b [S5, S6] — Wedding guest screen** (next)
+  - Route: inline parent implementation.
+  - Scope: replace the health-only screen with the mobile-first guest experience (QR entry notice, upload button and queue rows, infinite gallery, `<dialog>` detail with swipe/keyboard/download), wedding styling (ivory, sage, self-hosted serif), `lang="es"`.
+  - Checks: `cd frontend && npm test && npm run build`; `scripts/smoke.sh`; no browser harness in the repository — report that limitation.
 
 ## Acceptance criteria
 1. Guests must enter through the configured QR token; successful entry removes the token from the visible URL and establishes the documented signed cookie.
