@@ -215,33 +215,52 @@ func (s *Store) confirmed(ctx context.Context, id string) (Media, error) {
 	return result, err
 }
 func (s *Store) lockID(ctx context.Context, id string) (func(), error) {
+	lock := acquireIDRef(id)
+	select {
+	case lock.token <- struct{}{}:
+		return func() {
+			<-lock.token
+			releaseIDRef(id, lock)
+		}, nil
+	case <-ctx.Done():
+		releaseIDRef(id, lock)
+		return nil, ctx.Err()
+	}
+}
+
+// tryLockID takes the per-ID lock only when no upload currently holds it.
+func (s *Store) tryLockID(id string) (func(), bool) {
+	lock := acquireIDRef(id)
+	select {
+	case lock.token <- struct{}{}:
+		return func() {
+			<-lock.token
+			releaseIDRef(id, lock)
+		}, true
+	default:
+		releaseIDRef(id, lock)
+		return nil, false
+	}
+}
+
+func acquireIDRef(id string) *idLock {
 	idLocksMu.Lock()
+	defer idLocksMu.Unlock()
 	lock := idLocks[id]
 	if lock == nil {
 		lock = &idLock{token: make(chan struct{}, 1)}
 		idLocks[id] = lock
 	}
 	lock.refs++
-	idLocksMu.Unlock()
-	select {
-	case lock.token <- struct{}{}:
-		return func() {
-			<-lock.token
-			idLocksMu.Lock()
-			lock.refs--
-			if lock.refs == 0 {
-				delete(idLocks, id)
-			}
-			idLocksMu.Unlock()
-		}, nil
-	case <-ctx.Done():
-		idLocksMu.Lock()
-		lock.refs--
-		if lock.refs == 0 {
-			delete(idLocks, id)
-		}
-		idLocksMu.Unlock()
-		return nil, ctx.Err()
+	return lock
+}
+
+func releaseIDRef(id string, lock *idLock) {
+	idLocksMu.Lock()
+	defer idLocksMu.Unlock()
+	lock.refs--
+	if lock.refs == 0 {
+		delete(idLocks, id)
 	}
 }
 

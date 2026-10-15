@@ -94,6 +94,16 @@ Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `s
 
 ---
 
+## Conciliación del almacenamiento
+
+`boda serve` ejecuta una conciliación al arrancar y después cada `BODA_CLEANUP_INTERVAL` (10 minutos por defecto), según ADR-0009. Cada pasada:
+
+- Borra los archivos parciales `tmp/*.part` abandonados. Nunca toca los de una subida en curso: se respeta el bloqueo por identificador que mantiene la subida.
+- Publica en `derived/` las variantes que quedaron en `tmp/*.staged`, solo si su original está confirmado y visible. Las de originales ocultos o aún no confirmados siguen privadas.
+- Mueve a `quarantine/` los archivos de `originals/` sin registro en SQLite. **Nunca los borra**, y si el nombre ya existe en `quarantine/` añade un sufijo numérico en vez de sobrescribir. Se respeta el original que se está confirmando en ese momento.
+
+Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `skipped_active`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+
 ## Entrega a los novios
 
 La entrega se hace al terminar mediante un `rsync` por SSH a un disco externo; la aplicación no interviene. El operador copia `originals/`, y copia `hidden/` solo si se pide. La copia de SQLite no forma parte de la entrega a los novios. Se puede hacer un `rsync` incremental la noche del evento para acortar la copia final. Los archivos no cambian y los temporales están aparte, por lo que el `rsync` es seguro con la aplicación en marcha. `quarantine/` se revisa a mano antes del `rsync` final.

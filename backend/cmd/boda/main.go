@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/PMG801/wedding/internal/config"
 	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/httpapi"
+	"github.com/PMG801/wedding/internal/jobs"
 	"github.com/PMG801/wedding/internal/media"
 	"github.com/PMG801/wedding/internal/storage"
 	"github.com/PMG801/wedding/internal/upload"
@@ -108,6 +110,16 @@ func runServe() (resultErr error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go jobs.Every(ctx, cfg.CleanupInterval, func(ctx context.Context) {
+		report, err := photos.Reconcile(ctx)
+		if err != nil {
+			slog.Error("reconcile upload storage", "error", err)
+		}
+		slog.Info("reconciled upload storage",
+			"removed_partials", report.RemovedPartials, "quarantined", report.Quarantined,
+			"promoted_derivatives", report.PromotedDerivatives, "skipped_active", report.SkippedActive)
+	})
 
 	serverErr := make(chan error, 1)
 	go func() {
