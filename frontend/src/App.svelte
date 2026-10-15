@@ -1,27 +1,31 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { fetchHealth } from './lib/api/health'
+  import EntryNotice from './components/EntryNotice.svelte'
+  import GuestHome from './views/GuestHome.svelte'
+  import { hasGuestSession } from './lib/gallery/view'
+  import { copy } from './lib/i18n/es'
 
-  let status = $state<'loading' | 'ok' | 'unavailable'>('loading')
+  let access = $state<'checking' | 'granted' | 'missing' | 'unavailable'>('checking')
 
   onMount(() => {
-    let active = true
-
-    fetchHealth()
-      .then(() => {
-        if (active) status = 'ok'
-      })
-      .catch(() => {
-        if (active) status = 'unavailable'
-      })
-
-    return () => {
-      active = false
-    }
+    hasGuestSession()
+      .then((granted) => (access = granted ? 'granted' : 'missing'))
+      .catch(() => (access = 'unavailable'))
   })
 </script>
 
+<header class="hero">
+  <p class="hero-ornament" aria-hidden="true">❦</p>
+  <h1>{copy.title}</h1>
+  <p class="hero-subtitle">{copy.subtitle}</p>
+</header>
+
 <main>
-  <h1>Wedding memories</h1>
-  <p>API: {status === 'loading' ? 'loading' : status === 'ok' ? 'ok' : 'unavailable'}</p>
+  {#if access === 'checking'}
+    <p class="notice" role="status">{copy.entry.checking}</p>
+  {:else if access === 'granted'}
+    <GuestHome onSessionLost={() => (access = 'missing')} />
+  {:else}
+    <EntryNotice unavailable={access === 'unavailable'} />
+  {/if}
 </main>

@@ -106,10 +106,12 @@ The repository currently has a health-check-only API and frontend. The accepted 
   - Scope: `lib/gallery/feed.ts` (cursor paging, single in-flight load, head refresh that prepends new photos, refreshes derivative URLs, restarts when no overlap, error/session states), `lib/gallery/view.ts` (thumbnail/detail selection that never paints HEIC originals, `?dl=1` download with dated name, `#/foto/{id}` hash routing, `/api/session` check), `lib/i18n/es.ts` (all guest copy and upload error messages in Spanish).
   - Evidence: RED `npx vitest run src/lib/gallery src/lib/i18n` failed to resolve `./feed`, `./view`, `./es`; GREEN 42/42 frontend tests, `svelte-check` 0 errors.
   - Commit: `feat(frontend): add gallery feed, routing and Spanish copy` (hash recorded in the next task commit). T4b commit: `7cf8f8e`.
-- [ ] **T5b [S5, S6] — Wedding guest screen** (next)
+- [x] **T5b [S5, S6] — Wedding guest screen**
   - Route: inline parent implementation.
   - Scope: replace the health-only screen with the mobile-first guest experience (QR entry notice, upload button and queue rows, infinite gallery, `<dialog>` detail with swipe/keyboard/download), wedding styling (ivory, sage, self-hosted serif), `lang="es"`.
   - Checks: `cd frontend && npm test && npm run build`; `scripts/smoke.sh`; no browser harness in the repository — report that limitation.
+  - Evidence: container/presentational split — `App.svelte` (session check → `EntryNotice` or `GuestHome`), `views/GuestHome.svelte` (wires `UploadQueue`, `GalleryFeed`, hash route, batched refresh after uploads, `beforeunload` guard while uploading), presentational `UploadPanel`, `GalleryGrid` (lazy tiles, HEIC placeholder, IntersectionObserver + “Ver más” fallback), `PhotoDialog` (`<dialog>`, arrows, swipe, `download` link). Self-hosted Cormorant Garamond via `@fontsource/cormorant-garamond@5.3.0` (OFL-1.1, latin 500 only, ~23 kB woff2), `lang="es"`. `svelte-check` 0 errors/0 warnings, 42/42 tests, `npm run build` OK (JS 22.9 kB gzip), `scripts/smoke.sh` exit 0. No automated browser test: the UI (canvas derivatives, XHR progress, dialog gestures) still needs the runbook T1 device matrix on real phones.
+  - Commit: `feat(frontend): build the wedding guest upload and gallery screen`. T5a commit: `c827777`.
 
 ## Acceptance criteria
 1. Guests must enter through the configured QR token; successful entry removes the token from the visible URL and establishes the documented signed cookie.
@@ -127,7 +129,7 @@ The repository currently has a health-check-only API and frontend. The accepted 
 - Current work-unit base: `8aca776`.
 
 ## Next step
-Complete T3a (derivative persistence), then T3b (authenticated derivative API), T3c (visible gallery and Caddy serving), and T3d (safe reconciliation); continue with T4 and T5 afterward.
+All tasks T1–T5b are committed locally. Pending: user consent for native review of the high-risk commits (T3e `53f60be`, T3d `f31a089` + `34bc177`), real-device checks (runbook T1/T2), then push/PR decisions (stacked slices toward `develop`). Follow-up features: admin moderation (login, hide/show, upload switch) and the video decision.
 
 ## Log
 - L1 — 2026-10-14, resume request (verbatim): “Toca repasar los ultimos cambios donde ya añadimos la api para subir fotos, vamos a repasar las tareas y a continuar.”

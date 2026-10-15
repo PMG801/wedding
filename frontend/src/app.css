@@ -1,9 +1,20 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --ivory: #f8f4ec;
+  --paper: #fffdf8;
+  --ink: #2f2a26;
+  --muted: #6d645b;
+  --line: #e6ddd0;
+  --sage: #7d9471;
+  --sage-dark: #566c4b;
+  --danger: #a3453a;
+  --danger-soft: #e2b9b2;
+  --serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+
+  color-scheme: light;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
-  font-weight: 400;
-  color: #252525;
-  background: #fff;
+  color: var(--ink);
+  background: var(--ivory);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -12,11 +23,129 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--ivory);
 }
 
 #app {
   max-width: 960px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 0 1rem 3rem;
+}
+
+h1,
+h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+h2 {
+  font-size: 1.9rem;
+  margin: 2rem 0 1rem;
+}
+
+.hero {
+  text-align: center;
+  padding: 2.5rem 0 1.5rem;
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 11vw, 4.2rem);
+  margin: 0;
+}
+
+.hero-ornament {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  color: var(--sage);
+}
+
+.hero-subtitle {
+  margin: 0.5rem auto 0;
+  max-width: 26rem;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgb(47 42 38 / 0.04);
+}
+
+.notice {
+  text-align: center;
+  color: var(--muted);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.1rem;
+  border: 1px solid var(--sage);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--sage-dark);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button.primary {
+  background: var(--sage);
+  color: #fff;
+  min-height: 3.25rem;
+  padding: 0.6rem 1.6rem;
+  font-size: 1.05rem;
+}
+
+.button.small {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.button.round {
+  width: 2.75rem;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.button:focus-visible,
+.button:has(input:focus-visible) {
+  outline: 3px solid var(--sage-dark);
+  outline-offset: 2px;
+}
+
+.link {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
