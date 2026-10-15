@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PMG801/wedding/internal/upload"
@@ -16,13 +18,29 @@ type photoUploader interface {
 	SavePhoto(context.Context, string, int64, io.Reader) (upload.Media, error)
 }
 
+type derivativePhotoUploader interface {
+	SaveDerivative(context.Context, string, string, int64, io.Reader) (upload.Derivative, error)
+}
+
 var errUploadIdleTimeout = errors.New("upload body idle timeout")
 
-func newPhotoUploadHandler(photos photoUploader, maxConcurrent int, maxBytes int64, idleTimeout time.Duration) http.Handler {
+func newUploadCapacity(maxConcurrent int) chan struct{} {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
 	}
-	capacity := make(chan struct{}, maxConcurrent)
+	return make(chan struct{}, maxConcurrent)
+}
+
+func acquireUploadSlot(capacity chan struct{}) (func(), bool) {
+	select {
+	case capacity <- struct{}{}:
+		return func() { <-capacity }, true
+	default:
+		return nil, false
+	}
+}
+
+func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxBytes int64, idleTimeout time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if photos == nil || maxBytes <= 0 {
 			writeUploadError(w, http.StatusServiceUnavailable, "uploads_unavailable")
@@ -45,14 +63,13 @@ func newPhotoUploadHandler(photos photoUploader, maxConcurrent int, maxBytes int
 			writeUploadError(w, http.StatusRequestEntityTooLarge, "photo_too_large")
 			return
 		}
-		select {
-		case capacity <- struct{}{}:
-			defer func() { <-capacity }()
-		default:
+		release, ok := acquireUploadSlot(capacity)
+		if !ok {
 			w.Header().Set("Retry-After", "1")
 			writeUploadError(w, http.StatusServiceUnavailable, "upload_capacity_reached")
 			return
 		}
+		defer release()
 
 		var body io.Reader = r.Body
 		controller := http.NewResponseController(w)
@@ -77,6 +94,80 @@ func newPhotoUploadHandler(photos photoUploader, maxConcurrent int, maxBytes int
 			return
 		}
 		if media.AlreadyConfirmed {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	})
+}
+
+func newDerivativeUploadHandler(photos photoUploader, capacity chan struct{}, maxBytes int64, idleTimeout time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		derivatives, ok := photos.(derivativePhotoUploader)
+		if !ok || maxBytes <= 0 {
+			writeUploadError(w, http.StatusServiceUnavailable, "derivatives_unavailable")
+			return
+		}
+		id := r.PathValue("id")
+		if !upload.ValidID(id) {
+			writeUploadError(w, http.StatusBadRequest, "invalid_media_id")
+			return
+		}
+		variant := r.URL.Query().Get("variant")
+		if variant != "t" && variant != "d" {
+			writeUploadError(w, http.StatusBadRequest, "invalid_derivative_variant")
+			return
+		}
+		contentType, _, contentTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if contentTypeErr != nil || !strings.EqualFold(contentType, "image/jpeg") {
+			writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_derivative_format")
+			return
+		}
+		if r.ContentLength < 0 {
+			writeUploadError(w, http.StatusLengthRequired, "content_length_required")
+			return
+		}
+		if r.ContentLength == 0 {
+			writeUploadError(w, http.StatusBadRequest, "empty_derivative")
+			return
+		}
+		if r.ContentLength > maxBytes {
+			writeUploadError(w, http.StatusRequestEntityTooLarge, "derivative_too_large")
+			return
+		}
+		release, ok := acquireUploadSlot(capacity)
+		if !ok {
+			w.Header().Set("Retry-After", "1")
+			writeUploadError(w, http.StatusServiceUnavailable, "upload_capacity_reached")
+			return
+		}
+		defer release()
+
+		var body io.Reader = r.Body
+		controller := http.NewResponseController(w)
+		if idleTimeout > 0 {
+			body = &idleTimeoutBody{body: r.Body, controller: controller, timeout: idleTimeout}
+			defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
+		}
+		derivative, err := derivatives.SaveDerivative(r.Context(), id, variant, r.ContentLength, body)
+		if err != nil {
+			switch {
+			case errors.Is(err, upload.ErrMediaHidden):
+				writeUploadError(w, http.StatusNotFound, "media_not_found")
+			case errors.Is(err, upload.ErrInsufficientStorage):
+				writeUploadError(w, http.StatusInsufficientStorage, "insufficient_storage")
+			case errors.Is(err, upload.ErrUnsupportedPhoto):
+				writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_derivative_format")
+			case errors.Is(err, upload.ErrPhotoSizeMismatch), errors.Is(err, io.ErrUnexpectedEOF):
+				writeUploadError(w, http.StatusBadRequest, "derivative_body_size_mismatch")
+			case errors.Is(err, errUploadIdleTimeout):
+				writeUploadError(w, http.StatusRequestTimeout, "upload_idle_timeout")
+			default:
+				writeUploadError(w, http.StatusInternalServerError, "derivative_upload_failed")
+			}
+			return
+		}
+		if derivative.AlreadyConfirmed {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

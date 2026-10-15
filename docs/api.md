@@ -14,9 +14,27 @@ El QR apunta a `/e/{token}`. La aplicación comprueba el token, crea una cookie 
 
 El administrador entra con una contraseña con hash y una cookie de sesión aparte (`SameSite=Strict`). El login aplica un retraso progresivo tras fallos. La definición no proporciona el esquema del cuerpo ni la forma exacta de la cookie, sus atributos completos o los códigos de respuesta.
 
-### `POST /api/media/{id}/derived` — versiones derivadas
+### `POST /api/media/{id}/derived?variant=t|d` — versión derivada JPEG
 
-El cliente genera dos JPEG para las fotos: `_t` (unos 400 px) y `_d` (unos 2.048 px); en vídeo, genera una portada en el dispositivo. Las versiones pequeñas se suben primero, en peticiones cortas. La descripción solicitada del endpoint contempla la subida de `_t` y `_d`, pero la fuente no define la codificación de la petición, la convención exacta del cuerpo ni sus respuestas.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`) y un UUIDv4 canónico en minúsculas. Cada petición sube una variante JPEG en el cuerpo sin multipart: `variant=t` para la miniatura (unos 400 px) o `variant=d` para el detalle (unos 2.048 px). El cliente envía `Content-Type: image/jpeg` y un `Content-Length` positivo. El servidor valida la firma JPEG y aplica los mismos límites de tamaño (`BODA_MAX_PHOTO_BYTES`), concurrencia (`BODA_MAX_CONCURRENT_UPLOADS`), inactividad y espacio mínimo libre que a la subida del original.
+
+Las variantes pueden subirse antes que el original. En ese caso quedan en almacenamiento privado y no se sirven ni aparecen en la galería; se publican al confirmar un original visible con el mismo ID. Una variante ya aceptada no se vuelve a escribir en un reintento. Si falta una variante, el cliente puede continuar con el fallback de original sin procesamiento en el servidor.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `201 Created` | Derivado nuevo aceptado; cuerpo vacío. Si aún no existe el original, queda privado hasta su confirmación. |
+| `200 OK` | Reintento de un derivado ya aceptado; cuerpo vacío y sin reescritura. |
+| `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`), variante no admitida (`{"error":"invalid_derivative_variant"}`), cuerpo vacío (`{"error":"empty_derivative"}`) o tamaño real distinto del declarado (`{"error":"derivative_body_size_mismatch"}`). |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `404 Not Found` | El medio existente está oculto (`{"error":"media_not_found"}`). |
+| `405 Method Not Allowed` | Método distinto de `POST`; el cuerpo es el texto estándar de `net/http`. |
+| `408 Request Timeout` | El cuerpo no recibe datos durante el plazo de inactividad configurado (`{"error":"upload_idle_timeout"}`). |
+| `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
+| `413 Request Entity Too Large` | El tamaño declarado supera el máximo configurado (`{"error":"derivative_too_large"}`). |
+| `415 Unsupported Media Type` | El tipo declarado no es `image/jpeg` o la firma no es JPEG (`{"error":"unsupported_derivative_format"}`). |
+| `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
+| `503 Service Unavailable` | Capacidad compartida de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`; si el servicio de derivados no está disponible, `{"error":"derivatives_unavailable"}`. |
+| `500 Internal Server Error` | Error interno al guardar el derivado (`{"error":"derivative_upload_failed"}`). |
 
 ### `PUT /api/media/{id}` — original de foto en streaming
 
@@ -62,7 +80,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 
 ## Información pendiente para completar el contrato
 
-Hace falta el bloque de contrato HTTP anunciado en la definición final, con formatos exactos de petición/respuesta, cabeceras, códigos de estado y error, paginación por cursor y semántica completa del endpoint de derivados.
+La paginación y la respuesta de `GET /api/media`, así como los esquemas de moderación y ajustes administrativos, siguen pendientes de definición. El contrato de subida de derivados se especifica en su sección anterior.
 
 ### `GET /api/health` — estado del servicio
 
