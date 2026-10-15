@@ -2,6 +2,7 @@ package upload
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -85,9 +86,12 @@ func (s *Store) promoteStagedIfVisible(ctx context.Context, name string, report 
 	}
 	defer unlock()
 	original, err := s.confirmed(ctx, id)
-	if err != nil || original.Visibility != "visible" {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && original.Visibility != "visible") {
 		// Unconfirmed or hidden originals keep their derivatives private.
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check original of staged derivative %q: %w", name, err)
 	}
 	if err := s.promoteStagedDerivative(id, variant); err != nil {
 		return fmt.Errorf("promote staged derivative %q: %w", name, err)
