@@ -2,6 +2,9 @@
     servers {
         protocols h1 h2
     }
+    # Clients that connect to a bare IP send no SNI, and inside Docker Caddy
+    # cannot infer the public address, so name the certificate to fall back to.
+    default_sni {$BODA_DOMAIN:localhost}
 }
 
 (published_file) {
