@@ -17,6 +17,31 @@ curl -fsS http://localhost:8081/api/health
 curl -fsS http://localhost:8081/ | head
 ```
 
+## Despliegue en el servidor (`/srv/boda`)
+
+Todo el despliegue vive en `/srv/boda` y su fuente de verdad es `deploy/server/` del repositorio. El servidor no compila nada: descarga de GHCR las imágenes `boda-app` y `boda-web` con la etiqueta `rc`, que CI publica en cada push a `main` (se puede fijar otra con `BODA_TAG`).
+
+Preparación única (requiere Docker Engine y el plugin de Compose instalados):
+
+```sh
+sudo install -d -o "$USER" -g "$USER" /srv/boda
+scp deploy/server/{compose.yaml,deploy.sh,bootstrap.sh} <servidor>:/srv/boda/
+ssh <servidor> 'cd /srv/boda && ./bootstrap.sh'
+```
+
+`bootstrap.sh` crea `data/` (propiedad del UID `65532`, modo `0700`) y genera un `.env` con permisos `600` y secretos aleatorios, más `.admin-password`. Es idempotente: nunca sobrescribe un `.env` existente. Ninguno de los dos archivos está en Git.
+
+Para desplegar o actualizar: `cd /srv/boda && ./deploy.sh` (hace `docker compose pull` y `up -d`).
+
+Mientras no haya dominio ni HTTPS, la web solo escucha en `127.0.0.1:8081` del servidor (variables `BODA_BIND` y `BODA_HTTP_PORT`). Se accede con un túnel SSH, porque la cookie `Secure` solo se acepta en HTTPS o en `localhost`:
+
+```sh
+ssh -L 8081:127.0.0.1:8081 <servidor>
+# QR de prueba: http://localhost:8081/e/<BODA_EVENT_TOKEN>
+```
+
+Con dominio: define `BODA_DOMAIN=<dominio>` en `.env`, `BODA_BIND=0.0.0.0` y publica además los puertos 80 y 443.
+
 ## Integración continua
 
 GitHub Actions ejecuta la verificación en cada push a `develop` o `main` y al publicar una release de GitHub. El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.

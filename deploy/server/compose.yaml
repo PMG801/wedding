@@ -1,0 +1,45 @@
+# Production stack for /srv/boda. Images come from GHCR (published by CI on
+# pushes to main with the mutable tag "rc"); nothing is built on the server.
+name: boda
+
+services:
+  app:
+    image: ghcr.io/pmg801/boda-app:${BODA_TAG:-rc}
+    command: ["serve"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8080"
+    volumes:
+      # Single mount for the whole data root so tmp/ and originals/ share a
+      # filesystem. The host directory must be owned by UID 65532.
+      - ./data:/srv/evento
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/boda", "check"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  web:
+    image: ghcr.io/pmg801/boda-web:${BODA_TAG:-rc}
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      BODA_DOMAIN: ${BODA_DOMAIN:-:80}
+    ports:
+      # Bound to loopback until a domain and TLS exist. Reach it with:
+      #   ssh -L 8081:127.0.0.1:8081 ubuntu@<server>
+      - "${BODA_BIND:-127.0.0.1}:${BODA_HTTP_PORT:-8081}:80"
+    volumes:
+      - ./data/originals:/media/originals:ro
+      - ./data/derived:/media/derived:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:
