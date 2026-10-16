@@ -31,9 +31,12 @@ services:
     environment:
       BODA_DOMAIN: ${BODA_DOMAIN:-:80}
     ports:
-      # Bound to loopback until a domain and TLS exist. Reach it with:
-      #   ssh -L 8081:127.0.0.1:8081 ubuntu@<server>
-      - "${BODA_BIND:-127.0.0.1}:${BODA_HTTP_PORT:-8081}:80"
+      # Plain HTTP stays on loopback; Caddy only uses it for the HTTPS redirect.
+      # Reach it with: ssh -L 8081:127.0.0.1:8081 ubuntu@<server>
+      - "127.0.0.1:${BODA_HTTP_PORT:-8081}:80"
+      # HTTPS is loopback-only by default. In production set
+      # BODA_HTTPS_BIND=0.0.0.0 and BODA_HTTPS_PORT=443 in .env.
+      - "${BODA_HTTPS_BIND:-127.0.0.1}:${BODA_HTTPS_PORT:-8443}:443"
     volumes:
       - ./data/originals:/media/originals:ro
       - ./data/derived:/media/derived:ro

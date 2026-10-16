@@ -33,14 +33,14 @@ ssh <servidor> 'cd /srv/boda && ./bootstrap.sh'
 
 Para desplegar o actualizar: `cd /srv/boda && ./deploy.sh` (hace `docker compose pull` y `up -d`).
 
-Mientras no haya dominio ni HTTPS, la web solo escucha en `127.0.0.1:8081` del servidor (variables `BODA_BIND` y `BODA_HTTP_PORT`). Se accede con un túnel SSH, porque la cookie `Secure` solo se acepta en HTTPS o en `localhost`:
+Por defecto la web solo escucha en loopback del servidor: HTTP en `127.0.0.1:8081` (`BODA_HTTP_PORT`) y HTTPS en `127.0.0.1:8443` (`BODA_HTTPS_PORT`, `BODA_HTTPS_BIND`). Se accede con un túnel SSH, porque la cookie `Secure` solo se acepta en HTTPS o en `localhost`:
 
 ```sh
 ssh -L 8081:127.0.0.1:8081 <servidor>
 # QR de prueba: http://localhost:8081/e/<BODA_EVENT_TOKEN>
 ```
 
-Con dominio: define `BODA_DOMAIN=<dominio>` en `.env`, `BODA_BIND=0.0.0.0` y publica además los puertos 80 y 443.
+Para publicar solo con la IP (fase de pruebas, sin dominio): define en `.env` `BODA_DOMAIN=<IP pública>`, `BODA_HTTPS_BIND=0.0.0.0` y `BODA_HTTPS_PORT=443`. Caddy emite entonces un certificado de su CA local para esa IP (válido unas 12 horas y renovado automáticamente), así que cada dispositivo muestra un aviso de certificado no confiable que hay que aceptar; sin HTTPS la cookie `Secure` no se guarda. Hay que abrir únicamente el puerto TCP 443, tanto en el firewall del host (`/etc/iptables/rules.v4`) como en la security list de la nube; el 80 no hace falta. Con dominio real, basta con poner `BODA_DOMAIN=<dominio>` y Caddy obtendrá un certificado de Let's Encrypt (en ese caso sí necesita el 80 o el 443 accesibles para la validación).
 
 ## Integración continua
 
