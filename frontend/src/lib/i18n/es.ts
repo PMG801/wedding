@@ -1,4 +1,4 @@
-import type { UploadErrorCode, UploadItem } from '../upload/queue'
+import type { UploadErrorCode } from '../upload/queue'
 
 /** Guest-facing copy. The UI is Spanish only (S5); edit the names here. */
 export const copy = {
@@ -9,7 +9,7 @@ export const copy = {
     button: 'Subir fotos',
     hint: 'Puedes elegir varias a la vez. Se suben de dos en dos; no cierres esta página hasta que terminen.',
     retry: 'Reintentar',
-    fallback: 'Sin vista previa: se ha subido solo la foto original.',
+    progress: 'Progreso de la subida',
     clearDone: 'Ocultar las subidas terminadas'
   },
   gallery: {
@@ -48,19 +48,12 @@ export const uploadErrorMessages: Record<UploadErrorCode, string> = {
   server: 'El servidor está ocupado. Reintenta en un momento.'
 }
 
-export function uploadStatusLabel(item: Pick<UploadItem, 'status' | 'progress'>): string {
-  switch (item.status) {
-    case 'queued':
-      return 'En espera'
-    case 'preparing':
-      return 'Preparando…'
-    case 'uploading':
-      return `Subiendo… ${Math.round(item.progress * 100)} %`
-    case 'retrying':
-      return 'Reintentando…'
-    case 'done':
-      return 'Subida'
-    case 'failed':
-      return 'No se ha podido subir'
-  }
+export const uploadSummaryLabels = {
+  remaining: (remaining: number, total: number): string =>
+    remaining === 1 ? 'Queda 1 foto por subir' : `Quedan ${remaining} de ${total} fotos por subir`,
+  finished: (done: number): string => (done === 1 ? '✓ 1 foto subida' : `✓ ${done} fotos subidas`),
+  failed: (count: number): string =>
+    count === 1 ? 'Una foto no se ha podido subir' : `${count} fotos no se han podido subir`,
+  rejected: (count: number): string =>
+    `${count === 1 ? 'Un archivo no se puede subir' : `${count} archivos no se pueden subir`}: solo se admiten fotos JPEG, PNG o HEIC de hasta 50 MB.`
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { uploadErrorMessages, uploadStatusLabel } from './es'
+import { uploadErrorMessages, uploadSummaryLabels } from './es'
 
 describe('Spanish UI copy', () => {
   it('explains every upload error code to guests', () => {
@@ -10,9 +10,18 @@ describe('Spanish UI copy', () => {
     expect(uploadErrorMessages.session_expired).toContain('QR')
   })
 
-  it('labels progress with a whole percentage', () => {
-    expect(uploadStatusLabel({ status: 'uploading', progress: 0.426 })).toBe('Subiendo… 43 %')
-    expect(uploadStatusLabel({ status: 'done', progress: 1 })).toBe('Subida')
-    expect(uploadStatusLabel({ status: 'retrying', progress: 0.2 })).toBe('Reintentando…')
+  it('words the remaining count without file names', () => {
+    expect(uploadSummaryLabels.remaining(12, 40)).toBe('Quedan 12 de 40 fotos por subir')
+    expect(uploadSummaryLabels.remaining(1, 40)).toBe('Queda 1 foto por subir')
+  })
+
+  it('pluralises the finished, failed and rejected messages', () => {
+    expect(uploadSummaryLabels.finished(1)).toBe('✓ 1 foto subida')
+    expect(uploadSummaryLabels.finished(25)).toBe('✓ 25 fotos subidas')
+    expect(uploadSummaryLabels.failed(1)).toBe('Una foto no se ha podido subir')
+    expect(uploadSummaryLabels.failed(3)).toBe('3 fotos no se han podido subir')
+    expect(uploadSummaryLabels.rejected(1)).toContain('Un archivo no se puede subir')
+    expect(uploadSummaryLabels.rejected(2)).toContain('2 archivos no se pueden subir')
+    expect(uploadSummaryLabels.rejected(2)).toContain('JPEG, PNG o HEIC')
   })
 })
