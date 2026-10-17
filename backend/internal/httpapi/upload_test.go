@@ -440,3 +440,57 @@ func (u *blockingPhotoUploader) SavePhoto(ctx context.Context, id string, size i
 		return upload.Media{}, ctx.Err()
 	}
 }
+
+func TestVideoUploadUsesVideoLimitAndRejectsOversizedMedia(t *testing.T) {
+	options := upload.Options{MaxBytes: 40, MaxVideoBytes: 200, MaxConcurrent: 1}
+	store, paths := newHTTPPhotoStoreWithPaths(t, options)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 40, nil, WithMaxVideoBytes(200))
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	video := append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, bytes.Repeat([]byte{9}, 100)...)
+
+	created := httptest.NewRecorder()
+	handler.ServeHTTP(created, photoRequest(testMediaID, video, cookie))
+	if created.Code != http.StatusCreated || created.Body.Len() != 0 {
+		t.Fatalf("video PUT = %d %q; want empty 201", created.Code, created.Body.String())
+	}
+	retry := httptest.NewRecorder()
+	handler.ServeHTTP(retry, photoRequest(testMediaID, video, cookie))
+	if retry.Code != http.StatusOK || retry.Body.Len() != 0 {
+		t.Fatalf("video retry = %d %q; want empty 200", retry.Code, retry.Body.String())
+	}
+
+	const otherID = "223e4567-e89b-42d3-a456-426614174000"
+	photo := append([]byte{0xff, 0xd8, 0xff}, bytes.Repeat([]byte{1}, 60)...)
+	for _, test := range []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{"photo above photo limit", photo, "photo_too_large"},
+		{"media above every limit", bytes.Repeat([]byte{9}, 300), "media_too_large"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, photoRequest(otherID, test.body, cookie))
+		want := "{\"error\":\"" + test.want + "\"}\n"
+		if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != want {
+			t.Fatalf("%s = %d %q; want 413 %q", test.name, response.Code, response.Body.String(), want)
+		}
+	}
+	if entries, _ := os.ReadDir(paths.Originals); len(entries) != 1 {
+		t.Fatalf("originals = %d files; want only the accepted video", len(entries))
+	}
+	if entries, _ := os.ReadDir(paths.Tmp); len(entries) != 0 {
+		t.Fatalf("rejected uploads left temp files: %v", entries)
+	}
+}
+
+func TestDerivativeUploadKeepsPhotoLimitWhenVideoLimitIsLarger(t *testing.T) {
+	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 5, MaxVideoBytes: 200, MaxConcurrent: 1})
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 5, nil, WithMaxVideoBytes(200))
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff, 1, 2, 3}, cookie))
+	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != "{\"error\":\"derivative_too_large\"}\n" {
+		t.Fatalf("derivative above photo limit = %d %q", response.Code, response.Body.String())
+	}
+}

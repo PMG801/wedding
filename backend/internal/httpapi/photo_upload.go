@@ -40,9 +40,15 @@ func acquireUploadSlot(capacity chan struct{}) (func(), bool) {
 	}
 }
 
-func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxBytes int64, idleTimeout time.Duration) http.Handler {
+func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxBytes, maxVideoBytes int64, idleTimeout time.Duration) http.Handler {
+	tooLargeCode := "photo_too_large"
+	largest := maxBytes
+	if maxVideoBytes > maxBytes {
+		largest = maxVideoBytes
+		tooLargeCode = "media_too_large"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if photos == nil || maxBytes <= 0 {
+		if photos == nil || largest <= 0 {
 			writeUploadError(w, http.StatusServiceUnavailable, "uploads_unavailable")
 			return
 		}
@@ -59,8 +65,8 @@ func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxByte
 			writeUploadError(w, http.StatusBadRequest, "empty_photo")
 			return
 		}
-		if r.ContentLength > maxBytes {
-			writeUploadError(w, http.StatusRequestEntityTooLarge, "photo_too_large")
+		if r.ContentLength > largest {
+			writeUploadError(w, http.StatusRequestEntityTooLarge, tooLargeCode)
 			return
 		}
 		release, ok := acquireUploadSlot(capacity)
@@ -84,6 +90,10 @@ func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxByte
 				writeUploadError(w, http.StatusInsufficientStorage, "insufficient_storage")
 			case errors.Is(err, upload.ErrUnsupportedPhoto):
 				writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_photo_format")
+			case errors.Is(err, upload.ErrPhotoTooLarge):
+				writeUploadError(w, http.StatusRequestEntityTooLarge, "photo_too_large")
+			case errors.Is(err, upload.ErrVideoTooLarge):
+				writeUploadError(w, http.StatusRequestEntityTooLarge, "video_too_large")
 			case errors.Is(err, upload.ErrPhotoSizeMismatch), errors.Is(err, io.ErrUnexpectedEOF):
 				writeUploadError(w, http.StatusBadRequest, "photo_body_size_mismatch")
 			case errors.Is(err, errUploadIdleTimeout):

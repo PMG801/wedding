@@ -94,7 +94,7 @@ func runServe() (resultErr error) {
 	}
 
 	photos, err := upload.NewStore(database, paths, upload.Options{
-		MaxBytes: cfg.MaxPhotoBytes, MaxConcurrent: cfg.MaxConcurrentUploads, MinFreeBytes: uint64(cfg.DiskMinFreeBytes),
+		MaxBytes: cfg.MaxPhotoBytes, MaxVideoBytes: cfg.MaxVideoBytes, MaxConcurrent: cfg.MaxConcurrentUploads, MinFreeBytes: uint64(cfg.DiskMinFreeBytes),
 	})
 	if err != nil {
 		return fmt.Errorf("initialize photo uploads: %w", err)
@@ -105,7 +105,7 @@ func runServe() (resultErr error) {
 	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery),
+		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery, httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

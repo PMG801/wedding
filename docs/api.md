@@ -36,9 +36,9 @@ Las variantes pueden subirse antes que el original. En ese caso quedan en almace
 | `503 Service Unavailable` | Capacidad compartida de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`; si el servicio de derivados no está disponible, `{"error":"derivatives_unavailable"}`. |
 | `500 Internal Server Error` | Error interno al guardar el derivado (`{"error":"derivative_upload_failed"}`). |
 
-### `PUT /api/media/{id}` — original de foto en streaming
+### `PUT /api/media/{id}` — original de foto o vídeo en streaming
 
-La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite es `BODA_MAX_PHOTO_BYTES` (50 MB por defecto). Esta ruta admite JPEG, PNG, HEIC y HEIF mediante comprobación de firma; no admite vídeo.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite depende del tipo detectado por firma: `BODA_MAX_PHOTO_BYTES` (50 MB por defecto) para JPEG, PNG, HEIC y HEIF, y `BODA_MAX_VIDEO_BYTES` (1,5 GB por defecto) para vídeo MP4/M4V y QuickTime MOV (marca principal `isom`, `iso2`, `mp41`, `mp42`, `avc1`, `M4V ` o `qt  `). No se transcodifica nada en el servidor. Los derivados (miniatura y detalle, también la portada de un vídeo) siguen usando el límite de foto.
 
 Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (90 segundos por defecto), no un plazo total de subida. La aplicación escribe en `tmp/{id}.part`, valida firma y tamaño, sincroniza el archivo, lo renombra y confirma en SQLite. Un identificador ya confirmado devuelve el mismo éxito idempotente sin volver a escribir.
 
@@ -50,9 +50,9 @@ Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (9
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `405 Method Not Allowed` | Método distinto de `PUT`; el cuerpo es el texto estándar de `net/http`. |
 | `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
-| `413 Request Entity Too Large` | El tamaño declarado supera el máximo de foto (`{"error":"photo_too_large"}`). |
+| `413 Request Entity Too Large` | El tamaño declarado supera el máximo de foto (`{"error":"photo_too_large"}`), el de vídeo (`{"error":"video_too_large"}`) o, antes de leer el cuerpo y cuando el límite de vídeo es mayor que el de foto, el mayor de los dos (`{"error":"media_too_large"}`). |
 | `408 Request Timeout` | El cuerpo no recibe datos durante el plazo de inactividad configurado (`{"error":"upload_idle_timeout"}`). |
-| `415 Unsupported Media Type` | La firma no es JPEG, PNG, HEIC ni HEIF (`{"error":"unsupported_photo_format"}`). |
+| `415 Unsupported Media Type` | La firma no es JPEG, PNG, HEIC, HEIF, MP4 ni MOV (`{"error":"unsupported_photo_format"}`). |
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `500 Internal Server Error` | Error interno al persistir la foto (`{"error":"upload_failed"}`). |
 | `503 Service Unavailable` | Capacidad de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`. Si el servicio de subidas no está disponible, responde `{"error":"uploads_unavailable"}`. |
@@ -115,7 +115,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 - El acceso de invitado se obtiene mediante el token QR convertido en cookie firmada; el token no permanece en la URL tras la redirección.
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
-- La ruta de originales de foto documentada aquí admite JPEG, HEIC, HEIF y PNG por firma; la subida de vídeo no forma parte de este endpoint.
+- La ruta de originales admite JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma.
 
 ## Información pendiente para completar el contrato
 
