@@ -22,14 +22,16 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 - **S6 — Docs.** `docs/api.md`, `docs/runbook.md` (Spanish) describe video limits, formats and checks.
 
 ## Tasks
-- [ ] **T1 [S1, S2] — Backend: detect and store videos**
+- [x] **T1 [S1, S2] — Backend: detect and store videos**
   - Route: inline parent, test-first.
   - Scope: `DetectMediaType` (video brands), type-based size limit in `Store`, gallery MIME passthrough.
-  - Files: `backend/internal/upload/**`, `backend/internal/media/**`, `backend/cmd/boda/**`.
+  - Files: `backend/internal/upload/**`.
   - Risk: item 6 covered by tests; shared photo path touched, so photo behavior tests must stay green.
+  - Evidence: RED `go test ./internal/upload` failed to build (`DetectMediaType`, `Options.MaxVideoBytes`, `ErrPhotoTooLarge` undefined). GREEN: `cd backend && go test ./... && go vet ./...` and `gofmt -l` clean, all existing photo tests unchanged and passing. Tests cover MP4/M4V/MOV brands, HEIC/HEIF still photos, unknown brand rejected, `DetectPhotoType` still rejecting videos, video stored with `.mp4` and byte-identical, `ErrMediaTooLarge` before reading, `ErrPhotoTooLarge`/`ErrVideoTooLarge` after detection, and no leftover temp/original files. Gallery already returns the stored `media_type`, so no gallery change was needed; `cmd/boda` wiring of `MaxVideoBytes` moves to T2.
+  - Commit: see git log (`feat(upload): detect and store MP4/MOV videos`).
 - [ ] **T2 [S1] — HTTP: video limit, errors and contract**
   - Scope: handler accepts up to the video limit, new `video_too_large` response, API docs.
-  - Files: `backend/internal/httpapi/**`, `backend/cmd/boda/**`, `docs/api.md`.
+  - Files: `backend/internal/httpapi/**`, `backend/cmd/boda/**` (pass `MaxVideoBytes` to the store and handler), `docs/api.md`. Early 413 keeps `photo_too_large` when the video limit is not above the photo limit (existing contract); otherwise `media_too_large`; post-detection `photo_too_large`/`video_too_large`.
 - [ ] **T3 [S5] — Caddy and smoke: serve video with Range**
   - Scope: confirm `video/mp4`/`video/quicktime` types, extend `scripts/smoke.sh` with an MP4 upload, Range 206 and download.
   - Files: `deploy/caddy/Caddyfile`, `scripts/smoke.sh`.
@@ -51,7 +53,7 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
 
 ## Next step
-Start T1.
+Start T2.
 
 ## Log
 - L1 — 2026-10-17, user (verbatim): “Por lo que el paso a proceder va a ser el implementar la subida de video”

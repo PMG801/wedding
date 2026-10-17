@@ -197,3 +197,64 @@ func newTestStore(t *testing.T, options Options) (*Store, storage.Paths) {
 type errorReader struct{}
 
 func (errorReader) Read([]byte) (int, error) { return 0, errors.New("retry body must not be read") }
+
+func ftypHeader(brand string) []byte {
+	return append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p'}, []byte(brand)...)
+}
+
+func TestDetectMediaTypeRecognizesVideosAndKeepsPhotos(t *testing.T) {
+	for _, test := range []struct {
+		brand, mime, ext string
+	}{
+		{"isom", "video/mp4", ".mp4"},
+		{"mp42", "video/mp4", ".mp4"},
+		{"M4V ", "video/mp4", ".mp4"},
+		{"qt  ", "video/quicktime", ".mov"},
+		{"heic", "image/heic", ".heic"},
+		{"mif1", "image/heif", ".heif"},
+	} {
+		got, err := DetectMediaType(ftypHeader(test.brand))
+		if err != nil || got.MIME != test.mime || got.Extension != test.ext {
+			t.Fatalf("DetectMediaType(%q) = %+v, %v; want %s %s", test.brand, got, err, test.mime, test.ext)
+		}
+	}
+	if _, err := DetectMediaType(ftypHeader("zzzz")); !errors.Is(err, ErrUnsupportedPhoto) {
+		t.Fatalf("unknown brand error = %v", err)
+	}
+	if _, err := DetectPhotoType(ftypHeader("isom")); err == nil {
+		t.Fatal("DetectPhotoType() accepted a video")
+	}
+}
+
+func TestSavePhotoStoresVideoUsingVideoLimitAndKeepsPhotoLimit(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 20, MaxVideoBytes: 200, MaxConcurrent: 1})
+	video := append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 100)...)
+	media, err := store.SavePhoto(context.Background(), testID, int64(len(video)), bytes.NewReader(video))
+	if err != nil || media.MIME != "video/mp4" || !strings.HasSuffix(media.StorageName, ".mp4") {
+		t.Fatalf("SavePhoto(video) = %+v, %v", media, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(paths.Originals, media.StorageName)); err != nil || !bytes.Equal(got, video) {
+		t.Fatalf("stored video differs: %v", err)
+	}
+
+	otherID := "223e4567-e89b-42d3-a456-426614174000"
+	photo := append([]byte{0xff, 0xd8, 0xff}, bytes.Repeat([]byte{1}, 30)...)
+	if _, err := store.SavePhoto(context.Background(), otherID, int64(len(photo)), bytes.NewReader(photo)); !errors.Is(err, ErrPhotoTooLarge) {
+		t.Fatalf("oversized photo error = %v, want ErrPhotoTooLarge", err)
+	}
+	tooBig := append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 300)...)
+	if _, err := store.SavePhoto(context.Background(), otherID, int64(len(tooBig)), bytes.NewReader(tooBig)); !errors.Is(err, ErrMediaTooLarge) {
+		t.Fatalf("oversized media error = %v, want ErrMediaTooLarge", err)
+	}
+	small, _ := newTestStore(t, Options{MaxBytes: 300, MaxVideoBytes: 100, MaxConcurrent: 1})
+	if _, err := small.SavePhoto(context.Background(), otherID, 150, bytes.NewReader(append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 130)...))); !errors.Is(err, ErrVideoTooLarge) {
+		t.Fatalf("video above a smaller video limit error = %v, want ErrVideoTooLarge", err)
+	}
+	entries, _ := os.ReadDir(paths.Originals)
+	if len(entries) != 1 {
+		t.Fatalf("rejected uploads left %d originals, want only the first video", len(entries))
+	}
+	if left, _ := os.ReadDir(paths.Tmp); len(left) != 0 {
+		t.Fatalf("rejected uploads left temp files: %v", left)
+	}
+}

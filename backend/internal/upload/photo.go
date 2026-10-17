@@ -23,6 +23,9 @@ var (
 	ErrPhotoSizeMismatch   = errors.New("photo body does not match declared size")
 	ErrInsufficientStorage = errors.New("minimum free-disk threshold would be exceeded")
 	ErrMediaHidden         = errors.New("media is hidden")
+	ErrMediaTooLarge       = errors.New("media exceeds the largest configured size limit")
+	ErrPhotoTooLarge       = errors.New("photo exceeds the configured size limit")
+	ErrVideoTooLarge       = errors.New("video exceeds the configured size limit")
 )
 
 type PhotoType struct{ MIME, Extension string }
@@ -52,9 +55,43 @@ func DetectPhotoType(header []byte) (PhotoType, error) {
 }
 
 type Options struct {
-	MaxBytes      int64
+	// MaxBytes limits photos and derivatives.
+	MaxBytes int64
+	// MaxVideoBytes limits videos; zero means the same limit as MaxBytes.
+	MaxVideoBytes int64
 	MaxConcurrent int
 	MinFreeBytes  uint64
+}
+
+var videoBrands = map[string]PhotoType{
+	"isom": {"video/mp4", ".mp4"}, "iso2": {"video/mp4", ".mp4"}, "mp41": {"video/mp4", ".mp4"},
+	"mp42": {"video/mp4", ".mp4"}, "avc1": {"video/mp4", ".mp4"}, "M4V ": {"video/mp4", ".mp4"},
+	"qt  ": {"video/quicktime", ".mov"},
+}
+
+// DetectMediaType recognizes the supported photo signatures and MP4/MOV videos.
+// Videos are identified by the major brand of their ISO base media ftyp box.
+func DetectMediaType(header []byte) (PhotoType, error) {
+	if len(header) >= 12 && string(header[4:8]) == "ftyp" {
+		if video, ok := videoBrands[string(header[8:12])]; ok {
+			return video, nil
+		}
+	}
+	return DetectPhotoType(header)
+}
+
+func (s *Store) maxVideoBytes() int64 {
+	if s.options.MaxVideoBytes > 0 {
+		return s.options.MaxVideoBytes
+	}
+	return s.options.MaxBytes
+}
+
+func (s *Store) maxMediaBytes() int64 {
+	if limit := s.maxVideoBytes(); limit > s.options.MaxBytes {
+		return limit
+	}
+	return s.options.MaxBytes
 }
 
 type Media struct {
@@ -111,8 +148,11 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Media{}, fmt.Errorf("check existing media: %w", err)
 	}
-	if declaredSize <= 0 || declaredSize > s.options.MaxBytes {
-		return Media{}, fmt.Errorf("declared photo size must be between 1 and %d bytes", s.options.MaxBytes)
+	if declaredSize <= 0 || declaredSize > s.maxMediaBytes() {
+		if declaredSize > s.maxMediaBytes() {
+			return Media{}, ErrMediaTooLarge
+		}
+		return Media{}, errors.New("declared media size must be positive")
 	}
 	select {
 	case s.semaphore <- struct{}{}:
@@ -156,9 +196,16 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	if _, err := io.ReadFull(contextReader{ctx: ctx, reader: body}, header); err != nil {
 		return Media{}, fmt.Errorf("read photo signature: %w", err)
 	}
-	photoType, err := DetectPhotoType(header)
+	photoType, err := DetectMediaType(header)
 	if err != nil {
 		return Media{}, err
+	}
+	if strings.HasPrefix(photoType.MIME, "video/") {
+		if declaredSize > s.maxVideoBytes() {
+			return Media{}, ErrVideoTooLarge
+		}
+	} else if declaredSize > s.options.MaxBytes {
+		return Media{}, ErrPhotoTooLarge
 	}
 	if _, err := file.Write(header); err != nil {
 		return Media{}, fmt.Errorf("write photo: %w", err)
