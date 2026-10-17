@@ -7,3 +7,5 @@ backend/boda
 *.test
 coverage/
 .env
+
+.claude/*
