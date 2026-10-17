@@ -145,6 +145,12 @@ Los límites los pones tú con variables de entorno y la prueba se detiene en el
 
 Para provocar los límites del servidor sin agotar la máquina, baja sus variables `BODA_*` en el entorno de pruebas (por ejemplo `BODA_DISK_MIN_FREE_BYTES` para obtener 507, `BODA_MAX_PHOTO_BYTES` para 413 o `BODA_MAX_CONCURRENT_UPLOADS` para 503). Los códigos 408, 413, 503 y 507 se cuentan aparte (`limit_hits`) y no se consideran fallos. Con HTTPS autofirmado añade `LOAD_INSECURE=1`. Las fotos subidas quedan en el volumen: bórralo al terminar.
 
+## Vídeos
+
+Los invitados pueden subir vídeo MP4, M4V y QuickTime MOV (se detectan por la firma `ftyp`, no por la extensión) de hasta `BODA_MAX_VIDEO_BYTES` (1,5 GB). El servidor no transcodifica: guarda y sirve el original con Range (`206`). El navegador del invitado captura un fotograma como portada (miniatura y detalle) y, si no puede decodificar el vídeo (por ejemplo HEVC fuera de Safari), sube solo el original y la galería muestra un marcador con el icono de reproducción. Si el navegador tampoco puede reproducirlo, el detalle ofrece la descarga del original.
+
+En el cliente, un vídeo se sube solo: espera a que terminen las subidas en curso y no empieza ninguna otra hasta que acaba. Los límites de espacio libre y de concurrencia son los mismos que para las fotos. Las pruebas T1 y T2 de la matriz (dispositivos reales y 4G) siguen siendo manuales y deben hacerse antes de imprimir el QR; `scripts/smoke.sh` cubre subida, reintento idempotente, tipo de contenido y Range de un MP4 sintético.
+
 ## Conciliación del almacenamiento
 
 `boda serve` ejecuta una conciliación al arrancar y después cada `BODA_CLEANUP_INTERVAL` (10 minutos por defecto), según ADR-0009. Cada pasada:

@@ -48,9 +48,11 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
   - Files: `frontend/src/lib/gallery/**`, `frontend/src/lib/i18n/es.ts`, `frontend/src/components/GalleryGrid.svelte`, `frontend/src/components/PhotoDialog.svelte`.
   - Evidence: RED observed with the old `view.ts` (`isVideoItem is not a function`); GREEN: 56/56 frontend tests, `svelte-check` 0 errors, `npm run build` OK. Videos never use the original in `<img>`; the grid shows the poster thumbnail (or the placeholder) with a play badge; the dialog plays `<video controls playsinline>` with the poster, and on a playback error shows the Spanish message while the download button stays. Real playback, swipe and HEVC fallback are browser-only and covered by the manual T6 checks.
   - Commit: `feat(frontend): play videos in the gallery`.
-- [ ] **T6 [S6] — Docs and device checks**
+- [x] **T6 [S6] — Docs and device checks**
   - Scope: runbook updates; record that runbook T1/T2 (real devices, 4G) remain manual.
-  - Files: `docs/**`.
+  - Files: `docs/runbook.md`, `docs/api.md` (updated in T2).
+  - Evidence: final checks all pass: `cd backend && go test ./... && go vet ./...` and `gofmt -l` clean; `cd frontend && npm test` 56/56, `npm run build` OK, `svelte-check` 0 errors; `scripts/smoke.sh` exit 0 including the video section; `git diff --check` clean. Behavior diff on shared code: photo uploads keep their codes (`photo_too_large` 413, `unsupported_photo_format` 415); the one intended change is that with the default config an oversized non-media file between 50 MB and 1.5 GB is now rejected with 415 after reading its first 64 bytes instead of 413 before reading. Not exercised: real devices, HEVC fallback in browsers, 4G (runbook T1/T2), and MOV through Caddy.
+  - Commit: `docs(runbook): document video uploads`.
 
 ## Acceptance criteria
 1. An MP4/MOV up to the video limit uploads, is confirmed once, and retries do not rewrite it.
@@ -59,7 +61,7 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
 
 ## Next step
-Start T6.
+All tasks T1-T6 are committed locally. Pending: manual device and 4G checks (runbook T1/T2), then push/PR decisions (two slices: T1-T3 backend, T4-T6 frontend and docs). Risk: item 3 touched shared upload route and limits (contract kept, one noted difference above).
 
 Slice boundary: slice 1 = T1-T3 (backend and smoke, `docs(odd)` plan through `test(smoke)`); slice 2 = T4-T6 (frontend and docs).
 
