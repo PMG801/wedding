@@ -6,7 +6,7 @@
   import { fetchGalleryPage, xhrTransport } from '../lib/api/media'
   import { GalleryFeed, type GalleryFeedState } from '../lib/gallery/feed'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
-  import { createDerivatives } from '../lib/media/derivatives'
+  import { createMediaDerivatives } from '../lib/media/poster'
   import { UploadQueue, type UploadItem } from '../lib/upload/queue'
 
   let { onSessionLost }: { onSessionLost: () => void } = $props()
@@ -29,7 +29,7 @@
 
   const queue = new UploadQueue({
     transport: xhrTransport,
-    makeDerivatives: (file) => createDerivatives(file),
+    makeDerivatives: (file) => createMediaDerivatives(file),
     onChange: (items) => {
       uploads = items
       const finished = items.filter((item) => item.status === 'done').length

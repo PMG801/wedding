@@ -6,6 +6,7 @@ import {
   type UploadTransport
 } from '../api/media'
 import type { Derivatives } from '../media/derivatives'
+import { isVideoFile } from '../media/kind'
 
 export type UploadStatus = 'queued' | 'preparing' | 'uploading' | 'retrying' | 'done' | 'failed'
 
@@ -40,11 +41,15 @@ export interface UploadQueueOptions {
   concurrency?: number
   maxRetries?: number
   baseDelayMs?: number
+  /** Largest photo in bytes. */
   maxFileBytes?: number
+  /** Largest video in bytes. */
+  maxVideoBytes?: number
 }
 
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/heif'])
 const ACCEPTED_EXTENSION = /\.(jpe?g|png|heic|heif)$/i
+
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504])
 
 class UploadFailure extends Error {
@@ -63,6 +68,7 @@ export class UploadQueue {
   readonly #files = new Map<string, File>()
   readonly #pending: string[] = []
   #active = 0
+  #videoActive = false
   #idleWaiters: (() => void)[] = []
 
   constructor(options: UploadQueueOptions) {
@@ -73,6 +79,7 @@ export class UploadQueue {
       maxRetries: 5,
       baseDelayMs: 1000,
       maxFileBytes: 50 * 1024 * 1024,
+      maxVideoBytes: 1536 * 1024 * 1024,
       ...options
     }
   }
@@ -106,7 +113,7 @@ export class UploadQueue {
     this.#pump()
   }
 
-  /** Requeues a failed photo with the same media ID. */
+  /** Requeues a failed upload with the same media ID. */
   retry(id: string): void {
     const item = this.#items.find((candidate) => candidate.id === id)
     if (item === undefined || item.status !== 'failed' || !this.#files.has(id)) return
@@ -123,18 +130,26 @@ export class UploadQueue {
   }
 
   #validate(file: File): UploadErrorCode | null {
-    const typeAccepted = file.type === '' ? ACCEPTED_EXTENSION.test(file.name) : ACCEPTED_TYPES.has(file.type)
+    const video = isVideoFile(file)
+    const typeAccepted = video || (file.type === '' ? ACCEPTED_EXTENSION.test(file.name) : ACCEPTED_TYPES.has(file.type))
     if (!typeAccepted || file.size === 0) return 'unsupported_type'
-    if (file.size > this.#options.maxFileBytes) return 'too_large'
+    if (file.size > (video ? this.#options.maxVideoBytes : this.#options.maxFileBytes)) return 'too_large'
     return null
   }
 
   #pump(): void {
-    while (this.#active < this.#options.concurrency && this.#pending.length > 0) {
+    // Strict FIFO. A video runs alone (ADR-0005): it waits for running uploads
+    // and nothing starts behind it until it finishes.
+    while (this.#active < this.#options.concurrency && this.#pending.length > 0 && !this.#videoActive) {
+      const next = this.#files.get(this.#pending[0])!
+      const video = isVideoFile(next)
+      if (video && this.#active > 0) break
       const id = this.#pending.shift()!
+      this.#videoActive = video
       this.#active++
       void this.#process(id).finally(() => {
         this.#active--
+        this.#videoActive = false
         this.#pump()
         if (this.#active === 0 && this.#pending.length === 0) {
           this.#idleWaiters.splice(0).forEach((resolve) => resolve())

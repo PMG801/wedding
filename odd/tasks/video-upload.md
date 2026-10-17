@@ -38,9 +38,11 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
   - Files: `scripts/smoke.sh` (Caddyfile needed no change).
   - Evidence: `scripts/smoke.sh` exit 0 with the new section: MP4 upload 201 and idempotent retry 200, gallery lists `.mp4` with mime `video/mp4`, Caddy serves `Content-Type: video/mp4` byte-identical, `Range: bytes=100-1099` returns 206 with `Content-Range: bytes 100-1099/*`. Caddy's built-in MIME table covers `.mp4`/`.mov`, so no header rule was added. MOV type was not exercised by smoke (same table). Commit: `test(smoke): cover MP4 upload, serving and Range`.
   - Risk: item 5 (proxy config).
-- [ ] **T4 [S3, S4] — Frontend: poster capture and video queue**
+- [x] **T4 [S3, S4] — Frontend: poster capture and video queue**
   - Scope: `lib/media/poster.ts`, accepted types/size by kind, video-alone concurrency, Spanish errors.
-  - Files: `frontend/src/lib/**`.
+  - Files: `frontend/src/lib/**`, `frontend/src/views/GuestHome.svelte`, `frontend/src/components/UploadPanel.svelte`.
+  - Evidence: RED `npx vitest run src/lib` failed 2 tests (videos rejected as unsupported; no video-alone scheduling). GREEN: 55/55 tests, `svelte-check` 0 errors, `npm run build` OK. Tests: MP4/MOV accepted by type or extension, video limit separate from photo limit, strict FIFO with a video running alone (waits for running photos, holds back later ones), poster codec dispatch and null fallback. The previous test asserting `.mov` is unsupported was updated to `.avi` because accepting MOV is the requested change. The `<video>` frame codec (`lib/media/poster.ts`) and `accept` attribute are browser-only: exercised in the T6 manual device checks. Spanish copy now mentions videos and 1.5 GB.
+  - Commit: `feat(frontend): upload videos with a poster frame`.
 - [ ] **T5 [S5] — Frontend: video tile and player**
   - Scope: play badge on tiles, `<video>` in `PhotoDialog`, download fallback, no HEIC-style `<img>` paint of videos.
   - Files: `frontend/src/**`.
@@ -55,7 +57,7 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
 
 ## Next step
-Start T4.
+Start T5.
 
 ## Log
 - L1 — 2026-10-17, user (verbatim): “Por lo que el paso a proceder va a ser el implementar la subida de video”

@@ -6,8 +6,8 @@ export const copy = {
   subtitle: 'Comparte tus fotos de este día con nosotros',
   pageTitle: 'Nuestra boda · Fotos',
   upload: {
-    button: 'Subir fotos',
-    hint: 'Puedes elegir varias a la vez. Se suben de dos en dos; no cierres esta página hasta que terminen.',
+    button: 'Subir fotos y vídeos',
+    hint: 'Puedes elegir varias a la vez. Las fotos se suben de dos en dos y cada vídeo va solo, así que pueden tardar; no cierres esta página hasta que terminen.',
     retry: 'Reintentar',
     progress: 'Progreso de la subida',
     clearDone: 'Ocultar las subidas terminadas'
@@ -39,8 +39,8 @@ export const copy = {
 } as const
 
 export const uploadErrorMessages: Record<UploadErrorCode, string> = {
-  unsupported_type: 'Solo se admiten fotos JPEG, PNG o HEIC.',
-  too_large: 'La foto supera el tamaño máximo de 50 MB.',
+  unsupported_type: 'Solo se admiten fotos JPEG, PNG o HEIC y vídeos MP4 o MOV.',
+  too_large: 'El archivo supera el tamaño máximo (50 MB en fotos y 1,5 GB en vídeos).',
   session_expired: 'Tu acceso ha caducado. Vuelve a escanear el código QR y reintenta.',
   storage_full: 'No queda espacio para más fotos ahora mismo. Avísanos, por favor.',
   rejected: 'El servidor no ha aceptado esta foto.',
@@ -55,5 +55,5 @@ export const uploadSummaryLabels = {
   failed: (count: number): string =>
     count === 1 ? 'Una foto no se ha podido subir' : `${count} fotos no se han podido subir`,
   rejected: (count: number): string =>
-    `${count === 1 ? 'Un archivo no se puede subir' : `${count} archivos no se pueden subir`}: solo se admiten fotos JPEG, PNG o HEIC de hasta 50 MB.`
+    `${count === 1 ? 'Un archivo no se puede subir' : `${count} archivos no se pueden subir`}: solo se admiten fotos JPEG, PNG o HEIC de hasta 50 MB y vídeos MP4 o MOV de hasta 1,5 GB.`
 }

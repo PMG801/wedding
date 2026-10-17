@@ -170,7 +170,7 @@ describe('UploadQueue', () => {
   it('rejects unsupported, empty and oversized files before uploading', async () => {
     const { queue, transport } = setup({ maxFileBytes: 100 })
     queue.add([
-      photo('clip.mov', 10, 'video/quicktime'),
+      photo('clip.avi', 10, 'video/x-msvideo'),
       photo('empty.jpg', 0),
       photo('huge.jpg', 101),
       photo('IMG_0001.HEIC', 10, ''),
@@ -179,7 +179,7 @@ describe('UploadQueue', () => {
     await queue.idle()
 
     expect(queue.items.map((item) => [item.name, item.status, item.errorCode])).toEqual([
-      ['clip.mov', 'failed', 'unsupported_type'],
+      ['clip.avi', 'failed', 'unsupported_type'],
       ['empty.jpg', 'failed', 'unsupported_type'],
       ['huge.jpg', 'failed', 'too_large'],
       ['IMG_0001.HEIC', 'done', null],
@@ -202,5 +202,45 @@ describe('UploadQueue', () => {
     expect(progress).toEqual([...progress].sort((a, b) => a - b))
     expect(progress.at(-1)).toBe(1)
     expect(progress).toContain(1 / 16)
+  })
+
+  it('accepts MP4 and MOV videos and applies the video size limit only to videos', async () => {
+    const { queue } = setup({ maxFileBytes: 10, maxVideoBytes: 100 })
+    queue.add([photo('a.mp4', 50, 'video/mp4'), photo('b.mov', 50, ''), photo('c.jpg', 50), photo('d.mp4', 101, 'video/mp4'), photo('e.avi', 5, 'video/x-msvideo')])
+    await queue.idle()
+    expect(queue.items.map((item) => [item.name, item.status, item.errorCode])).toEqual([
+      ['a.mp4', 'done', null],
+      ['b.mov', 'done', null],
+      ['c.jpg', 'failed', 'too_large'],
+      ['d.mp4', 'failed', 'too_large'],
+      ['e.avi', 'failed', 'unsupported_type']
+    ])
+  })
+
+  it('uploads a video alone: it waits for running photos and holds back later ones', async () => {
+    const running = new Set<string>()
+    const log: string[] = []
+    const gates: (() => void)[] = []
+    const transport: UploadTransport = async (request) => {
+      if (request.method !== 'PUT') return ok201
+      const name = (request.body as File).name
+      log.push(`start ${name} while [${[...running].join(',')}]`)
+      running.add(name)
+      await new Promise<void>((resolve) => gates.push(resolve))
+      running.delete(name)
+      return ok201
+    }
+    const queue = new UploadQueue({ transport, makeDerivatives: async () => null, newId: sequentialIds(), sleep: async () => {}, concurrency: 2 })
+    queue.add([photo('p1.jpg'), photo('p2.jpg'), photo('v.mp4', 10, 'video/mp4'), photo('p3.jpg')])
+    const release = async () => {
+      await vi.waitFor(() => expect(gates.length).toBeGreaterThan(0))
+      gates.shift()!()
+    }
+    await release()
+    await release()
+    await release()
+    await release()
+    await queue.idle()
+    expect(log).toEqual(['start p1.jpg while []', 'start p2.jpg while [p1.jpg]', 'start v.mp4 while []', 'start p3.jpg while []'])
   })
 })

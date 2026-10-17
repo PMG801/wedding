@@ -36,7 +36,7 @@
       class="visually-hidden"
       type="file"
       multiple
-      accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
+      accept="image/jpeg,image/png,image/heic,image/heif,video/mp4,video/quicktime,.heic,.heif,.mp4,.m4v,.mov"
       onchange={select}
     />
     <span aria-hidden="true">＋</span>
