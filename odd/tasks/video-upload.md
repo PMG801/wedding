@@ -1,0 +1,58 @@
+# Guest video upload and playback
+Branch: `feat/video-upload` from `develop`; delivery: review slices toward `develop`.
+Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test && npm run build`; `scripts/smoke.sh`.
+
+## Objective
+Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow, see them in the gallery with a poster, and play or download them.
+
+## Accepted scope and constraints
+- Follow ADR-0002, 0004 (client poster, no server transcoding), 0005 (streaming idempotent upload; one video at a time on the client; TUS only if runbook T2 fails), 0006/0011 (media behind the guest session, Range support).
+- Reuse the photo pipeline: same `PUT /api/media/{id}`, same derivatives route for the poster (`t`/`d` JPEG), same gallery, same reconciliation.
+- Formats: MP4/M4V and QuickTime MOV (ISO base media `ftyp`), detected by signature. No WebM, no server transcoding, no moderation.
+- Admin moderation, security hardening and `boda reindex` are out of scope (user decision, L2).
+- Local work-unit commits authorized under ODD; push, PR and merge remain the user's decisions.
+- Engram mirror topic: `odd/video-upload/tasks`.
+
+## Specs
+- **S1 — Limits.** Photos keep `BODA_MAX_PHOTO_BYTES`; videos use `BODA_MAX_VIDEO_BYTES`. The limit is chosen by detected type; declared size above the video limit is rejected before reading the body.
+- **S2 — Detection.** `ftyp` brands for HEIC/HEIF stay photos; brands `isom`, `iso2`, `mp41`, `mp42`, `avc1`, `M4V `, `qt  ` are videos (`video/mp4`, `video/quicktime`). Anything else stays `unsupported_photo_format`.
+- **S3 — Poster.** The browser captures one frame from an off-screen `<video>` and sends it as `t` and `d` JPEG derivatives; if it fails, upload the original only and show a placeholder tile.
+- **S4 — Client queue.** A video uploads alone (ADR-0005: concurrency 1 for video); photos keep two at a time. Same retry/backoff and idempotent ID.
+- **S5 — Playback.** Detail dialog plays with `<video controls>`; if the browser cannot play it, offer the download. UI copy in Spanish, code in English.
+- **S6 — Docs.** `docs/api.md`, `docs/runbook.md` (Spanish) describe video limits, formats and checks.
+
+## Tasks
+- [ ] **T1 [S1, S2] — Backend: detect and store videos**
+  - Route: inline parent, test-first.
+  - Scope: `DetectMediaType` (video brands), type-based size limit in `Store`, gallery MIME passthrough.
+  - Files: `backend/internal/upload/**`, `backend/internal/media/**`, `backend/cmd/boda/**`.
+  - Risk: item 6 covered by tests; shared photo path touched, so photo behavior tests must stay green.
+- [ ] **T2 [S1] — HTTP: video limit, errors and contract**
+  - Scope: handler accepts up to the video limit, new `video_too_large` response, API docs.
+  - Files: `backend/internal/httpapi/**`, `backend/cmd/boda/**`, `docs/api.md`.
+- [ ] **T3 [S5] — Caddy and smoke: serve video with Range**
+  - Scope: confirm `video/mp4`/`video/quicktime` types, extend `scripts/smoke.sh` with an MP4 upload, Range 206 and download.
+  - Files: `deploy/caddy/Caddyfile`, `scripts/smoke.sh`.
+  - Risk: item 5 (proxy config).
+- [ ] **T4 [S3, S4] — Frontend: poster capture and video queue**
+  - Scope: `lib/media/poster.ts`, accepted types/size by kind, video-alone concurrency, Spanish errors.
+  - Files: `frontend/src/lib/**`.
+- [ ] **T5 [S5] — Frontend: video tile and player**
+  - Scope: play badge on tiles, `<video>` in `PhotoDialog`, download fallback, no HEIC-style `<img>` paint of videos.
+  - Files: `frontend/src/**`.
+- [ ] **T6 [S6] — Docs and device checks**
+  - Scope: runbook updates; record that runbook T1/T2 (real devices, 4G) remain manual.
+  - Files: `docs/**`.
+
+## Acceptance criteria
+1. An MP4/MOV up to the video limit uploads, is confirmed once, and retries do not rewrite it.
+2. Oversized videos, photos above the photo limit, and unknown signatures are rejected with stable error codes without leaving stored data.
+3. The gallery shows a video poster (or placeholder), plays it with Range seeking, and offers a byte-identical download.
+4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
+
+## Next step
+Start T1.
+
+## Log
+- L1 — 2026-10-17, user (verbatim): “Por lo que el paso a proceder va a ser el implementar la subida de video”
+- L2 — 2026-10-17, user: administration is postponed until much later; priority is feasibility and a usable product, security afterwards.
