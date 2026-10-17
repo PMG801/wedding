@@ -33,9 +33,10 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
   - Scope: handler accepts up to the video limit, new `video_too_large` response, API docs.
   - Evidence: RED `go test ./internal/httpapi` failed to build (`WithMaxVideoBytes` undefined). GREEN: `cd backend && go test ./... && go vet ./...` pass; `NewHandler` gained only a variadic option, so existing callers and photo tests are unchanged. Tests: video 201 then idempotent 200, photo above photo limit 413 `photo_too_large`, oversize 413 `media_too_large`, no stray originals/temp files, derivatives keep the photo limit. `docs/api.md` updated. Commit: `feat(upload): accept videos on the media upload route`.
   - Files: `backend/internal/httpapi/**`, `backend/cmd/boda/**` (pass `MaxVideoBytes` to the store and handler), `docs/api.md`. Early 413 keeps `photo_too_large` when the video limit is not above the photo limit (existing contract); otherwise `media_too_large`; post-detection `photo_too_large`/`video_too_large`.
-- [ ] **T3 [S5] — Caddy and smoke: serve video with Range**
+- [x] **T3 [S5] — Caddy and smoke: serve video with Range**
   - Scope: confirm `video/mp4`/`video/quicktime` types, extend `scripts/smoke.sh` with an MP4 upload, Range 206 and download.
-  - Files: `deploy/caddy/Caddyfile`, `scripts/smoke.sh`.
+  - Files: `scripts/smoke.sh` (Caddyfile needed no change).
+  - Evidence: `scripts/smoke.sh` exit 0 with the new section: MP4 upload 201 and idempotent retry 200, gallery lists `.mp4` with mime `video/mp4`, Caddy serves `Content-Type: video/mp4` byte-identical, `Range: bytes=100-1099` returns 206 with `Content-Range: bytes 100-1099/*`. Caddy's built-in MIME table covers `.mp4`/`.mov`, so no header rule was added. MOV type was not exercised by smoke (same table). Commit: `test(smoke): cover MP4 upload, serving and Range`.
   - Risk: item 5 (proxy config).
 - [ ] **T4 [S3, S4] — Frontend: poster capture and video queue**
   - Scope: `lib/media/poster.ts`, accepted types/size by kind, video-alone concurrency, Spanish errors.
@@ -54,7 +55,7 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
 
 ## Next step
-Start T3.
+Start T4.
 
 ## Log
 - L1 — 2026-10-17, user (verbatim): “Por lo que el paso a proceder va a ser el implementar la subida de video”

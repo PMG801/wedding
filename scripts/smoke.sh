@@ -190,3 +190,37 @@ if [[ "$heic_url" != *.heic || "$heic_type" != image/heic ]]; then
   exit 1
 fi
 echo 'HEIC content type passed.'
+
+# A synthetic MP4: the server checks the ftyp major brand only. 4 KiB of
+# deterministic payload makes the Range and byte-identity checks meaningful.
+smoke_video_id=123e4567-e89b-42d3-a456-426614174002
+{ printf '\000\000\000\030ftypmp42\000\000\000\000mp42isom'; head -c 4096 /dev/zero | tr '\0' 'v'; } >"$smoke_photo_file"
+video_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: video/mp4' --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_video_id")"
+if [[ "$video_upload_status" != 201 ]]; then
+  echo "Video upload returned HTTP $video_upload_status; want 201." >&2
+  exit 1
+fi
+video_retry_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: video/mp4' --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_video_id")"
+if [[ "$video_retry_status" != 200 ]]; then
+  echo "Video retry returned HTTP $video_retry_status; want 200." >&2
+  exit 1
+fi
+video_item="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media?limit=1")"
+video_url="$(printf '%s' "$video_item" | grep -o '"original_url":"[^"]*"' | cut -d '"' -f 4)"
+if [[ "$video_url" != *.mp4 || "$video_item" != *'"mime":"video/mp4"'* ]]; then
+  echo "Gallery listed the video as '$video_item'; want a .mp4 original with mime video/mp4." >&2
+  exit 1
+fi
+video_type="$(curl -sS -o "$smoke_media_body" -w '%{content_type}' -H "Cookie: $guest_cookie" "$smoke_base_url$video_url")"
+if [[ "$video_type" != video/mp4 ]] || ! cmp -s "$smoke_photo_file" "$smoke_media_body"; then
+  echo "Video media was served as '$video_type' or differs from the upload." >&2
+  exit 1
+fi
+video_range="$(curl -sS -o /dev/null -D - -H "Cookie: $guest_cookie" -H 'Range: bytes=100-1099' "$smoke_base_url$video_url" | tr -d '\r')"
+if [[ "$video_range" != *' 206'* || "${video_range,,}" != *'content-range: bytes 100-1099/'* ]]; then
+  echo "Video Range request returned: $video_range" >&2
+  exit 1
+fi
+echo 'Video upload, playback type and Range passed.'
