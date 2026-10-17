@@ -1,4 +1,5 @@
 import type { GalleryItem } from '../api/media'
+import { isVideoMime } from '../media/kind'
 
 /** MIME types every browser can paint in an <img>; HEIC/HEIF are not among them. */
 const BROWSER_DISPLAYABLE = new Set(['image/jpeg', 'image/png'])
@@ -10,6 +11,15 @@ export function gridImage(item: GalleryItem): string | null {
 
 export function detailImage(item: GalleryItem): string | null {
   return item.detailUrl ?? (BROWSER_DISPLAYABLE.has(item.mime) ? item.originalUrl : item.thumbUrl)
+}
+
+export function isVideoItem(item: GalleryItem): boolean {
+  return isVideoMime(item.mime)
+}
+
+/** Poster shown before a video plays; undefined lets the browser show its own first frame. */
+export function videoPoster(item: GalleryItem): string | undefined {
+  return item.detailUrl ?? item.thumbUrl ?? undefined
 }
 
 export function downloadUrl(item: GalleryItem): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GalleryItem } from '../api/media'
-import { detailImage, downloadFileName, downloadUrl, gridImage, hasGuestSession, parseRoute, photoHash } from './view'
+import { detailImage, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster } from './view'
 
 const base: GalleryItem = {
   id: '123e4567-e89b-42d3-a456-426614174000',
@@ -18,6 +18,20 @@ describe('image selection', () => {
     expect(detailImage(withDerivatives)).toBe('/m/d/d.jpg')
     expect(gridImage(base)).toBe(base.originalUrl)
     expect(detailImage({ ...base, mime: 'image/png' })).toBe(base.originalUrl)
+  })
+
+  it('treats videos as playable media and never paints the video file in an image element', () => {
+    const video = { ...base, mime: 'video/mp4', originalUrl: '/m/o/clip.mp4' }
+    expect(isVideoItem(video)).toBe(true)
+    expect(isVideoItem(base)).toBe(false)
+    expect(gridImage(video)).toBeNull()
+    expect(detailImage(video)).toBeNull()
+    expect(videoPoster(video)).toBeUndefined()
+    const withPoster = { ...video, thumbUrl: '/m/d/t.jpg', detailUrl: '/m/d/d.jpg' }
+    expect(gridImage(withPoster)).toBe('/m/d/t.jpg')
+    expect(videoPoster(withPoster)).toBe('/m/d/d.jpg')
+    expect(videoPoster({ ...video, thumbUrl: '/m/d/t.jpg' })).toBe('/m/d/t.jpg')
+    expect(downloadFileName(video)).toMatch(/\.mp4$/)
   })
 
   it('never shows a HEIC original in an image element', () => {

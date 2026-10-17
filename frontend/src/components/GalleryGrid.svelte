@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GalleryFeedState } from '../lib/gallery/feed'
-  import { gridImage, photoHash } from '../lib/gallery/view'
+  import { gridImage, isVideoItem, photoHash } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
   let { feed, onLoadMore }: { feed: GalleryFeedState; onLoadMore: () => void } = $props()
@@ -38,6 +38,9 @@
           {:else}
             <span class="placeholder">{copy.gallery.noPreview}</span>
           {/if}
+          {#if isVideoItem(item)}
+            <span class="play-badge" role="img" aria-label={copy.gallery.videoLabel}>▶</span>
+          {/if}
         </a>
       </li>
     {/each}
@@ -72,6 +75,7 @@
   }
 
   .tile {
+    position: relative;
     display: block;
     aspect-ratio: 1;
     overflow: hidden;
@@ -89,6 +93,21 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+
+  .play-badge {
+    position: absolute;
+    right: 0.4rem;
+    bottom: 0.4rem;
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: rgb(29 26 23 / 0.7);
+    color: #fff;
+    font-size: 0.8rem;
+    pointer-events: none;
   }
 
   .placeholder {

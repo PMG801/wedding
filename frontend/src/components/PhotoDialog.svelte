@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GalleryItem } from '../lib/api/media'
-  import { detailImage, downloadFileName, downloadUrl } from '../lib/gallery/view'
+  import { detailImage, downloadFileName, downloadUrl, isVideoItem, videoPoster } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
   let {
@@ -19,9 +19,11 @@
 
   let dialog = $state<HTMLDialogElement>()
   let touchStartX: number | null = null
+  let failedVideoId = $state<string | null>(null)
 
   const item = $derived(items[index])
   const image = $derived(detailImage(item))
+  const video = $derived(isVideoItem(item))
   const hasPrevious = $derived(index > 0)
   const hasNext = $derived(index < items.length - 1 || hasMore)
 
@@ -61,7 +63,23 @@
   ontouchend={onTouchEnd}
 >
   <div class="frame">
-    {#if image !== null}
+    {#if video}
+      {#if failedVideoId === item.id}
+        <p class="no-preview">{copy.detail.videoUnsupported}</p>
+      {:else}
+        {#key item.id}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video
+            src={item.originalUrl}
+            poster={videoPoster(item)}
+            controls
+            playsinline
+            preload="metadata"
+            onerror={() => (failedVideoId = item.id)}
+          ></video>
+        {/key}
+      {/if}
+    {:else if image !== null}
       {#key image}
         <img src={image} alt={copy.gallery.photoAlt} decoding="async" />
       {/key}
@@ -107,7 +125,8 @@
     padding: 3.5rem 0.5rem 0.5rem;
   }
 
-  .frame img {
+  .frame img,
+  .frame video {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;

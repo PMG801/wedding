@@ -43,9 +43,11 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
   - Files: `frontend/src/lib/**`, `frontend/src/views/GuestHome.svelte`, `frontend/src/components/UploadPanel.svelte`.
   - Evidence: RED `npx vitest run src/lib` failed 2 tests (videos rejected as unsupported; no video-alone scheduling). GREEN: 55/55 tests, `svelte-check` 0 errors, `npm run build` OK. Tests: MP4/MOV accepted by type or extension, video limit separate from photo limit, strict FIFO with a video running alone (waits for running photos, holds back later ones), poster codec dispatch and null fallback. The previous test asserting `.mov` is unsupported was updated to `.avi` because accepting MOV is the requested change. The `<video>` frame codec (`lib/media/poster.ts`) and `accept` attribute are browser-only: exercised in the T6 manual device checks. Spanish copy now mentions videos and 1.5 GB.
   - Commit: `feat(frontend): upload videos with a poster frame`.
-- [ ] **T5 [S5] — Frontend: video tile and player**
+- [x] **T5 [S5] — Frontend: video tile and player**
   - Scope: play badge on tiles, `<video>` in `PhotoDialog`, download fallback, no HEIC-style `<img>` paint of videos.
-  - Files: `frontend/src/**`.
+  - Files: `frontend/src/lib/gallery/**`, `frontend/src/lib/i18n/es.ts`, `frontend/src/components/GalleryGrid.svelte`, `frontend/src/components/PhotoDialog.svelte`.
+  - Evidence: RED observed with the old `view.ts` (`isVideoItem is not a function`); GREEN: 56/56 frontend tests, `svelte-check` 0 errors, `npm run build` OK. Videos never use the original in `<img>`; the grid shows the poster thumbnail (or the placeholder) with a play badge; the dialog plays `<video controls playsinline>` with the poster, and on a playback error shows the Spanish message while the download button stays. Real playback, swipe and HEVC fallback are browser-only and covered by the manual T6 checks.
+  - Commit: `feat(frontend): play videos in the gallery`.
 - [ ] **T6 [S6] — Docs and device checks**
   - Scope: runbook updates; record that runbook T1/T2 (real devices, 4G) remain manual.
   - Files: `docs/**`.
@@ -57,7 +59,9 @@ Let guests upload videos (up to `BODA_MAX_VIDEO_BYTES`, 1.5 GB) from the QR flow
 4. Backend tests/vet, frontend tests/build and the smoke test pass; limitations (no device or 4G test) are recorded.
 
 ## Next step
-Start T5.
+Start T6.
+
+Slice boundary: slice 1 = T1-T3 (backend and smoke, `docs(odd)` plan through `test(smoke)`); slice 2 = T4-T6 (frontend and docs).
 
 ## Log
 - L1 — 2026-10-17, user (verbatim): “Por lo que el paso a proceder va a ser el implementar la subida de video”
