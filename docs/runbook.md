@@ -119,6 +119,32 @@ Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `s
 
 ---
 
+## Pruebas de carga
+
+`scripts/load.sh` lanza `scripts/load/upload.js` con k6 (binario local o, si no existe, la imagen `grafana/k6` por Docker). Genera fotos sintéticas (firma JPEG + ceros), así que no hace falta descargar imágenes. Cada invitado virtual entra por el QR, sube una foto, la reenvía (debe responder 200) y lee la galería.
+
+```bash
+set -a; . ./.env; set +a
+LOAD_BASE_URL=http://localhost:8081 LOAD_EVENT_TOKEN="$BODA_EVENT_TOKEN" \
+LOAD_PHOTO_BYTES=5242880 LOAD_MAX_TOTAL_BYTES=1073741824 LOAD_VUS=20 \
+scripts/load.sh
+```
+
+Los límites los pones tú con variables de entorno y la prueba se detiene en el primero que se alcance:
+
+| Variable | Por defecto | Efecto |
+| --- | --- | --- |
+| `LOAD_MAX_TOTAL_BYTES` | 100 MiB | Presupuesto duro de bytes enviados (incluye el reenvío). |
+| `LOAD_PHOTO_BYTES` | 2 MiB | Tamaño de cada foto. |
+| `LOAD_VUS` | 5 | Invitados concurrentes. |
+| `LOAD_MAX_DURATION` | 5m | Tope de tiempo. |
+| `LOAD_MAX_ERROR_RATE` | 0.05 | Aborta si los errores inesperados superan esta tasa. |
+| `LOAD_STOP_ON_STATUS` | 507 | Aborta cuando el servidor responde con alguno de estos códigos. |
+| `LOAD_IDEMPOTENT_RETRY` | true | Reenvía cada foto esperando 200. |
+| `LOAD_GALLERY_READS` | 1 | Lecturas de galería por iteración. |
+
+Para provocar los límites del servidor sin agotar la máquina, baja sus variables `BODA_*` en el entorno de pruebas (por ejemplo `BODA_DISK_MIN_FREE_BYTES` para obtener 507, `BODA_MAX_PHOTO_BYTES` para 413 o `BODA_MAX_CONCURRENT_UPLOADS` para 503). Los códigos 408, 413, 503 y 507 se cuentan aparte (`limit_hits`) y no se consideran fallos. Con HTTPS autofirmado añade `LOAD_INSECURE=1`. Las fotos subidas quedan en el volumen: bórralo al terminar.
+
 ## Conciliación del almacenamiento
 
 `boda serve` ejecuta una conciliación al arrancar y después cada `BODA_CLEANUP_INTERVAL` (10 minutos por defecto), según ADR-0009. Cada pasada:
