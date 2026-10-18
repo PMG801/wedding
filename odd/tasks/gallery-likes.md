@@ -32,6 +32,11 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 - Caddy `forward_auth` does not forward the `/api/session` `Set-Cookie`; legacy cookies upgrade on API requests, not on `/m/*`.
 - Frontend: after an unlike, the medium stays in the open ranking until the view is reopened; a like 404 rolls back but does not remove the medium from the list.
 
+## Verification
+- Independent verify of `fac7d14` (`gentle-ai-verify`, risk items 1+2): S2 PASS, S4 PASS, D6 PASS; `go vet`, `go test -race ./...` green; ad-hoc probe (scratch only) 32 concurrent likes by one guest → count 1, 100 like/unlike → `like_count == rows`.
+- S1 reported FAIL: a client that ignores `Set-Cookie` and keeps replaying a legacy v1 cookie gets a fresh `guest_id` per request, so it can like a medium many times. **Decision (parent): accepted, not fixed.** The same client can already mint unlimited fresh cookies by calling `/e/{token}` without a cookie, which D1/L3 accept ("otro navegador ... o caduca la cookie"); a browser stores the upgraded cookie and is limited normally. The suggested fix (derive `guest_id` from the v1 MAC) would merge distinct guests: v1 cookies contain only the expiry in seconds, so two guests entering in the same second hold byte-identical v1 cookies. v1 cookies exist only from QA before this change and expire within 30 days.
+- Non-blocking follow-ups: `INSERT OR IGNORE` also hides CHECK violations (ids are always generated/validated today); add a committed concurrency test; middleware-level expired-cookie test; `media_likes` FK has no `ON DELETE` (no delete path exists, by design).
+
 ## Dependencies
 Admin hiding (`admin-moderation`) affects S4; it is implemented on the base branch.
 
