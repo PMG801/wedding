@@ -8,7 +8,9 @@ const base: GalleryItem = {
   confirmedAt: Date.UTC(2027, 1, 27, 18, 30, 12),
   originalUrl: '/m/o/20270227T183012.000000000Z_123e4567-e89b-42d3-a456-426614174000.jpg',
   thumbUrl: null,
-  detailUrl: null
+  detailUrl: null,
+  likeCount: 0,
+  likedByMe: false
 }
 
 describe('image selection', () => {

@@ -30,4 +30,15 @@ describe('Spanish UI copy', () => {
     expect(copy.detail.hideConfirm).toContain('administración')
     expect(copy.detail.hideFailed.length).toBeGreaterThan(10)
   })
+
+  it('offers the Recientes and Más gustadas views with an empty ranking message', () => {
+    expect(copy.gallery.views).toEqual({ recent: 'Recientes', top: 'Más gustadas' })
+    expect(copy.ranking.empty).toBe('Todavía no hay fotos con me gusta')
+  })
+
+  it('labels the like button in Spanish and explains a failed like', () => {
+    expect(copy.likes.like).toBe('Me gusta')
+    expect(copy.likes.unlike).toBe('Quitar me gusta')
+    expect(copy.likes.failed.length).toBeGreaterThan(10)
+  })
 })

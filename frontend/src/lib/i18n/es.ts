@@ -22,7 +22,17 @@ export const copy = {
     end: 'Ya has visto todas las fotos.',
     noPreview: 'Vista previa no disponible',
     photoAlt: 'Foto de la boda',
-    videoLabel: 'Vídeo'
+    videoLabel: 'Vídeo',
+    viewsLabel: 'Orden de la galería',
+    views: { recent: 'Recientes', top: 'Más gustadas' }
+  },
+  ranking: {
+    empty: 'Todavía no hay fotos con me gusta'
+  },
+  likes: {
+    like: 'Me gusta',
+    unlike: 'Quitar me gusta',
+    failed: 'No se ha podido guardar tu me gusta. Inténtalo de nuevo.'
   },
   detail: {
     close: 'Cerrar',

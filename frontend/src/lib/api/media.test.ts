@@ -3,9 +3,12 @@ import {
   createXhrTransport,
   derivativeUploadRequest,
   fetchGalleryPage,
+  fetchTopMedia,
   GuestSessionRequiredError,
+  MediaNotFoundError,
   NetworkError,
   originalUploadRequest,
+  setLike,
   type UploadRequest
 } from './media'
 
@@ -136,7 +139,9 @@ describe('fetchGalleryPage', () => {
     confirmed_at: 1790000000000,
     original_url: `/m/o/x_${id}.jpg`,
     thumb_url: `/m/d/${id}_t.jpg`,
-    detail_url: null
+    detail_url: null,
+    like_count: 3,
+    liked_by_me: true
   }
 
   it('requests the first page and returns typed items', async () => {
@@ -149,7 +154,9 @@ describe('fetchGalleryPage', () => {
           confirmedAt: 1790000000000,
           originalUrl: item.original_url,
           thumbUrl: item.thumb_url,
-          detailUrl: null
+          detailUrl: null,
+          likeCount: 3,
+          likedByMe: true
         }
       ],
       nextCursor: 'abc'
@@ -172,10 +179,103 @@ describe('fetchGalleryPage', () => {
     await expect(fetchGalleryPage({ fetchFn: vi.fn().mockResolvedValue({ ok: false, status: 500 }) })).rejects.toThrow(
       'Gallery request failed with HTTP 500'
     )
-    for (const body of [{}, { items: [{ ...item, id: 7 }], next_cursor: null }, { items: [], next_cursor: 3 }]) {
+    for (const body of [
+      {},
+      { items: [{ ...item, id: 7 }], next_cursor: null },
+      { items: [], next_cursor: 3 },
+      { items: [{ ...item, like_count: -1 }], next_cursor: null },
+      { items: [{ ...item, like_count: 1.5 }], next_cursor: null },
+      { items: [{ ...item, liked_by_me: 'yes' }], next_cursor: null },
+      { items: [{ ...item, like_count: undefined }], next_cursor: null }
+    ]) {
       const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, body))
       await expect(fetchGalleryPage({ fetchFn })).rejects.toThrow('Gallery response has an invalid shape')
     }
+  })
+})
+
+
+describe('fetchTopMedia', () => {
+  const item = {
+    id,
+    mime: 'image/jpeg',
+    confirmed_at: 1790000000000,
+    original_url: `/m/o/x_${id}.jpg`,
+    thumb_url: null,
+    detail_url: null,
+    like_count: 7,
+    liked_by_me: false
+  }
+
+  it('requests the ranking once with no cursor and returns typed items', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { items: [item] }))
+    await expect(fetchTopMedia({ fetchFn })).resolves.toEqual([
+      {
+        id,
+        mime: 'image/jpeg',
+        confirmedAt: 1790000000000,
+        originalUrl: item.original_url,
+        thumbUrl: null,
+        detailUrl: null,
+        likeCount: 7,
+        likedByMe: false
+      }
+    ])
+    expect(fetchFn).toHaveBeenCalledWith('/api/media/top', { credentials: 'same-origin' })
+  })
+
+  it('returns an empty ranking as an empty list', async () => {
+    await expect(fetchTopMedia({ fetchFn: vi.fn().mockResolvedValue(jsonResponse(200, { items: [] })) })).resolves.toEqual([])
+  })
+
+  it('reports a missing guest session distinctly and other failures as errors', async () => {
+    await expect(fetchTopMedia({ fetchFn: vi.fn().mockResolvedValue({ ok: false, status: 401 }) })).rejects.toBeInstanceOf(
+      GuestSessionRequiredError
+    )
+    await expect(fetchTopMedia({ fetchFn: vi.fn().mockResolvedValue({ ok: false, status: 503 }) })).rejects.toThrow(
+      'Top media request failed with HTTP 503'
+    )
+  })
+
+  it('rejects malformed rankings', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { items: [{ ...item, like_count: '3' }] }))
+    await expect(fetchTopMedia({ fetchFn })).rejects.toThrow('Top media response has an invalid shape')
+    await expect(fetchTopMedia({ fetchFn: vi.fn().mockResolvedValue(jsonResponse(200, {})) })).rejects.toThrow(
+      'Top media response has an invalid shape'
+    )
+  })
+})
+
+describe('setLike', () => {
+  it('marks the medium with PUT and returns the stored state', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { id, like_count: 4, liked_by_me: true }))
+    await expect(setLike(id, true, fetchFn)).resolves.toEqual({ id, likeCount: 4, likedByMe: true })
+    expect(fetchFn).toHaveBeenCalledWith(`/api/media/${id}/like`, { method: 'PUT', credentials: 'same-origin' })
+  })
+
+  it('removes the like with DELETE', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { id, like_count: 0, liked_by_me: false }))
+    await expect(setLike(id, false, fetchFn)).resolves.toEqual({ id, likeCount: 0, likedByMe: false })
+    expect(fetchFn).toHaveBeenCalledWith(`/api/media/${id}/like`, { method: 'DELETE', credentials: 'same-origin' })
+  })
+
+  it('maps 401, 404 and other failures to distinct errors', async () => {
+    await expect(setLike(id, true, vi.fn().mockResolvedValue({ ok: false, status: 401 }))).rejects.toBeInstanceOf(
+      GuestSessionRequiredError
+    )
+    await expect(setLike(id, true, vi.fn().mockResolvedValue({ ok: false, status: 404 }))).rejects.toBeInstanceOf(
+      MediaNotFoundError
+    )
+    await expect(setLike(id, false, vi.fn().mockResolvedValue({ ok: false, status: 500 }))).rejects.toThrow(
+      'Like request failed with HTTP 500'
+    )
+  })
+
+  it('rejects responses that do not describe the liked medium', async () => {
+    const wrongId = vi.fn().mockResolvedValue(jsonResponse(200, { id: 'x', like_count: 1, liked_by_me: true }))
+    await expect(setLike(id, true, wrongId)).rejects.toThrow('Like response has an invalid shape')
+    const negative = vi.fn().mockResolvedValue(jsonResponse(200, { id, like_count: -1, liked_by_me: false }))
+    await expect(setLike(id, false, negative)).rejects.toThrow('Like response has an invalid shape')
   })
 })
 

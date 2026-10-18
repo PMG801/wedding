@@ -3,7 +3,7 @@
   import GalleryGrid from '../components/GalleryGrid.svelte'
   import PhotoDialog from '../components/PhotoDialog.svelte'
   import UploadPanel from '../components/UploadPanel.svelte'
-  import { fetchGalleryPage, xhrTransport } from '../lib/api/media'
+  import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
   import { hasAdminSession } from '../lib/api/moderation'
   import { GalleryFeed, type GalleryFeedState } from '../lib/gallery/feed'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
@@ -14,7 +14,7 @@
 
   let uploads = $state<readonly UploadItem[]>([])
   let dismissed = $state(new Set<string>())
-  let gallery = $state<GalleryFeedState>({ items: [], status: 'idle', hasMore: true })
+  let gallery = $state<GalleryFeedState>({ view: 'recent', items: [], status: 'idle', hasMore: true, likeFailedId: null })
   let route = $state<Route>(parseRoute(location.hash))
   let canHide = $state(false)
 
@@ -23,6 +23,8 @@
 
   const feed = new GalleryFeed({
     fetchPage: (cursor) => fetchGalleryPage({ cursor }),
+    fetchTop: () => fetchTopMedia(),
+    sendLike: (id, liked) => setLike(id, liked),
     onChange: (state) => {
       gallery = state
       if (state.status === 'session_required') onSessionLost()
@@ -93,7 +95,12 @@
   onDismissFinished={dismissFinished}
 />
 
-<GalleryGrid feed={gallery} onLoadMore={() => void feed.loadMore()} />
+<GalleryGrid
+  feed={gallery}
+  onLoadMore={() => void feed.loadMore()}
+  onViewChange={(view) => void feed.setView(view)}
+  onLike={(id) => void feed.toggleLike(id)}
+/>
 
 {#if openIndex >= 0}
   <PhotoDialog
@@ -102,6 +109,8 @@
     hasMore={gallery.hasMore}
     onNavigate={showPhoto}
     onClose={closePhoto}
+    onLike={(id) => void feed.toggleLike(id)}
+    likeFailedId={gallery.likeFailedId}
     onHide={canHide ? (id) => feed.remove(id) : undefined}
   />
 {/if}

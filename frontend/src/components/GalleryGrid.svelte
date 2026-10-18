@@ -1,9 +1,19 @@
 <script lang="ts">
-  import type { GalleryFeedState } from '../lib/gallery/feed'
+  import type { GalleryFeedState, GalleryView } from '../lib/gallery/feed'
   import { gridImage, isVideoItem, photoHash } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
-  let { feed, onLoadMore }: { feed: GalleryFeedState; onLoadMore: () => void } = $props()
+  let {
+    feed,
+    onLoadMore,
+    onViewChange,
+    onLike
+  }: {
+    feed: GalleryFeedState
+    onLoadMore: () => void
+    onViewChange: (view: GalleryView) => void
+    onLike: (id: string) => void
+  } = $props()
 
   let sentinel = $state<HTMLElement>()
 
@@ -12,7 +22,8 @@
     if (sentinel === undefined || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) onLoadMore()
+        // The ranking has no pages, so scrolling past it must not reload it.
+        if (feed.hasMore && entries.some((entry) => entry.isIntersecting)) onLoadMore()
       },
       { rootMargin: '600px 0px' }
     )
@@ -24,14 +35,27 @@
 <section class="gallery" aria-labelledby="gallery-heading">
   <h2 id="gallery-heading">{copy.gallery.heading}</h2>
 
+  <div class="views" role="group" aria-label={copy.gallery.viewsLabel}>
+    <button class="button small" type="button" aria-pressed={feed.view === 'recent'} onclick={() => onViewChange('recent')}>
+      {copy.gallery.views.recent}
+    </button>
+    <button class="button small" type="button" aria-pressed={feed.view === 'top'} onclick={() => onViewChange('top')}>
+      {copy.gallery.views.top}
+    </button>
+  </div>
+
+  {#if feed.likeFailedId !== null}
+    <p class="notice" role="alert">{copy.likes.failed}</p>
+  {/if}
+
   {#if feed.items.length === 0 && feed.status === 'idle' && !feed.hasMore}
-    <p class="notice">{copy.gallery.empty}</p>
+    <p class="notice">{feed.view === 'top' ? copy.ranking.empty : copy.gallery.empty}</p>
   {/if}
 
   <ul class="grid">
     {#each feed.items as item (item.id)}
       {@const image = gridImage(item)}
-      <li>
+      <li class="cell">
         <a class="tile" href={photoHash(item.id)}>
           {#if image !== null}
             <img src={image} alt={copy.gallery.photoAlt} loading="lazy" decoding="async" />
@@ -42,6 +66,18 @@
             <span class="play-badge" role="img" aria-label={copy.gallery.videoLabel}>▶</span>
           {/if}
         </a>
+        <button
+          class="like"
+          class:liked={item.likedByMe}
+          type="button"
+          aria-label={copy.likes.like}
+          aria-pressed={item.likedByMe}
+          title={item.likedByMe ? copy.likes.unlike : copy.likes.like}
+          onclick={() => onLike(item.id)}
+        >
+          <span aria-hidden="true">{item.likedByMe ? '♥' : '♡'}</span>
+          <span aria-hidden="true">{item.likeCount}</span>
+        </button>
       </li>
     {/each}
   </ul>
@@ -54,7 +90,7 @@
       <button class="button" type="button" onclick={onLoadMore}>{copy.gallery.retry}</button>
     {:else if feed.hasMore}
       <button class="button" type="button" onclick={onLoadMore}>{copy.gallery.loadMore}</button>
-    {:else if feed.items.length > 0}
+    {:else if feed.view === 'recent' && feed.items.length > 0}
       <p class="notice">{copy.gallery.end}</p>
     {/if}
   </div>
@@ -65,6 +101,18 @@
     text-align: center;
   }
 
+  .views {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+  }
+
+  .views .button[aria-pressed='true'] {
+    background: var(--sage);
+    color: #fff;
+  }
+
   .grid {
     margin: 0;
     padding: 0;
@@ -72,6 +120,35 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(30vw, 160px), 1fr));
     gap: 0.4rem;
+  }
+
+  .cell {
+    position: relative;
+  }
+
+  .like {
+    position: absolute;
+    left: 0.4rem;
+    bottom: 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    border: none;
+    border-radius: 999px;
+    background: rgb(29 26 23 / 0.6);
+    color: #fff;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .like.liked {
+    color: var(--danger-soft);
+  }
+
+  .like:focus-visible {
+    outline: 3px solid var(--sage);
+    outline-offset: 2px;
   }
 
   .tile {

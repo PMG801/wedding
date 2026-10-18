@@ -10,6 +10,8 @@
     hasMore,
     onNavigate,
     onClose,
+    onLike,
+    likeFailedId,
     onHide
   }: {
     items: GalleryItem[]
@@ -17,6 +19,9 @@
     hasMore: boolean
     onNavigate: (index: number) => void
     onClose: () => void
+    onLike: (id: string) => void
+    /** Id of the photo whose last like change was rolled back, if any. */
+    likeFailedId: string | null
     /** Present only for an administrator; called after the item was hidden on the server. */
     onHide?: (id: string) => void
   } = $props()
@@ -119,10 +124,25 @@
   <div class="controls">
     <button class="button round" type="button" onclick={previous} disabled={!hasPrevious} aria-label={copy.detail.previous}>‹</button>
     <a class="button primary" href={downloadUrl(item)} download={downloadFileName(item)}>{copy.detail.download}</a>
+    <button
+      class="button like"
+      class:liked={item.likedByMe}
+      type="button"
+      aria-label={copy.likes.like}
+      aria-pressed={item.likedByMe}
+      title={item.likedByMe ? copy.likes.unlike : copy.likes.like}
+      onclick={() => onLike(item.id)}
+    >
+      <span aria-hidden="true">{item.likedByMe ? '♥' : '♡'}</span>
+      <span aria-hidden="true">{item.likeCount}</span>
+    </button>
     {#if onHide !== undefined}
       <button class="button" type="button" onclick={hide} disabled={hiding}>{copy.detail.hide}</button>
     {/if}
     <button class="button round" type="button" onclick={next} disabled={!hasNext} aria-label={copy.detail.next}>›</button>
+    {#if likeFailedId === item.id}
+      <p class="hide-error" role="alert">{copy.likes.failed}</p>
+    {/if}
     {#if hideError !== ''}
       <p class="hide-error" role="alert">{hideError}</p>
     {/if}
@@ -187,6 +207,16 @@
     margin: 0;
     text-align: center;
     color: var(--danger);
+  }
+
+  .like {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .like.liked {
+    color: var(--danger-soft);
   }
 
   .close {

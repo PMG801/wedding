@@ -23,6 +23,10 @@ export interface GalleryItem {
   originalUrl: string
   thumbUrl: string | null
   detailUrl: string | null
+  /** Stored «me gusta» count of the medium. */
+  likeCount: number
+  /** Whether the current guest identity has already liked the medium. */
+  likedByMe: boolean
 }
 
 export interface GalleryPage {
@@ -30,10 +34,24 @@ export interface GalleryPage {
   nextCursor: string | null
 }
 
+/** Server state of one medium after a like change (PUT/DELETE /api/media/{id}/like). */
+export interface LikeResult {
+  id: string
+  likeCount: number
+  likedByMe: boolean
+}
+
 export class GuestSessionRequiredError extends Error {
   constructor() {
     super('A guest session from the wedding QR code is required')
     this.name = 'GuestSessionRequiredError'
+  }
+}
+
+export class MediaNotFoundError extends Error {
+  constructor() {
+    super('The medium is unknown or hidden')
+    this.name = 'MediaNotFoundError'
   }
 }
 
@@ -131,10 +149,48 @@ export async function fetchGalleryPage({
   if (!isRecord(body) || !Array.isArray(body.items) || !isNullableString(body.next_cursor)) {
     throw new Error('Gallery response has an invalid shape')
   }
-  return { items: body.items.map(parseGalleryItem), nextCursor: body.next_cursor }
+  return {
+    items: body.items.map((raw) => parseGalleryItem(raw, 'Gallery response has an invalid shape')),
+    nextCursor: body.next_cursor
+  }
 }
 
-function parseGalleryItem(raw: unknown): GalleryItem {
+/** Loads the ranking of the most liked visible media (GET /api/media/top). It has no cursor and no further pages. */
+export async function fetchTopMedia({ fetchFn = fetch }: { fetchFn?: typeof fetch } = {}): Promise<GalleryItem[]> {
+  const response = await fetchFn('/api/media/top', { credentials: 'same-origin' })
+  if (response.status === 401) throw new GuestSessionRequiredError()
+  if (!response.ok) throw new Error(`Top media request failed with HTTP ${response.status}`)
+
+  const body: unknown = await response.json()
+  if (!isRecord(body) || !Array.isArray(body.items)) {
+    throw new Error('Top media response has an invalid shape')
+  }
+  return body.items.map((raw) => parseGalleryItem(raw, 'Top media response has an invalid shape'))
+}
+
+/** Marks (liked = true, PUT) or unmarks (liked = false, DELETE) a medium for this guest identity. */
+export async function setLike(id: string, liked: boolean, fetchFn: typeof fetch = fetch): Promise<LikeResult> {
+  const response = await fetchFn(`/api/media/${id}/like`, {
+    method: liked ? 'PUT' : 'DELETE',
+    credentials: 'same-origin'
+  })
+  if (response.status === 401) throw new GuestSessionRequiredError()
+  if (response.status === 404) throw new MediaNotFoundError()
+  if (!response.ok) throw new Error(`Like request failed with HTTP ${response.status}`)
+
+  const body: unknown = await response.json()
+  if (
+    !isRecord(body) ||
+    body.id !== id ||
+    !isCount(body.like_count) ||
+    typeof body.liked_by_me !== 'boolean'
+  ) {
+    throw new Error('Like response has an invalid shape')
+  }
+  return { id: body.id, likeCount: body.like_count, likedByMe: body.liked_by_me }
+}
+
+function parseGalleryItem(raw: unknown, invalidMessage: string): GalleryItem {
   if (
     !isRecord(raw) ||
     typeof raw.id !== 'string' ||
@@ -142,9 +198,11 @@ function parseGalleryItem(raw: unknown): GalleryItem {
     typeof raw.confirmed_at !== 'number' ||
     typeof raw.original_url !== 'string' ||
     !isNullableString(raw.thumb_url) ||
-    !isNullableString(raw.detail_url)
+    !isNullableString(raw.detail_url) ||
+    !isCount(raw.like_count) ||
+    typeof raw.liked_by_me !== 'boolean'
   ) {
-    throw new Error('Gallery response has an invalid shape')
+    throw new Error(invalidMessage)
   }
   return {
     id: raw.id,
@@ -152,8 +210,14 @@ function parseGalleryItem(raw: unknown): GalleryItem {
     confirmedAt: raw.confirmed_at,
     originalUrl: raw.original_url,
     thumbUrl: raw.thumb_url,
-    detailUrl: raw.detail_url
+    detailUrl: raw.detail_url,
+    likeCount: raw.like_count,
+    likedByMe: raw.liked_by_me
   }
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
