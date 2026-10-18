@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GalleryFeedState, GalleryView } from '../lib/gallery/feed'
+  import { computeWindow } from '../lib/gallery/window'
   import { gridImage, isVideoItem, photoHash } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
@@ -16,6 +17,70 @@
   } = $props()
 
   let sentinel = $state<HTMLElement>()
+  let gridEl = $state<HTMLUListElement>()
+
+  // Mounted slice of feed.items plus spacer heights (px) that keep the grid's full height (S1, S2).
+  let slice = $state({ start: 0, end: 0, topSpacer: 0, bottomSpacer: 0 })
+  const visibleItems = $derived(feed.items.slice(slice.start, slice.end))
+  let frame = 0
+  let shownView: GalleryView | undefined
+
+  /** Recomputes the window from the grid's layout. `top` resets it to the first rows (D4). */
+  function measure(top: boolean): void {
+    if (gridEl === undefined) return
+    const style = getComputedStyle(gridEl)
+    const tracks = (style.gridTemplateColumns ?? '').trim().split(/\s+/).filter(Boolean)
+    const tileWidth = parseFloat(tracks[0] ?? '')
+    const gap = parseFloat(style.rowGap ?? '') || 0
+    // No layout (e.g. jsdom) gives rowHeight 0, which yields a bounded first window without spacers.
+    const rowHeight = Number.isFinite(tileWidth) ? tileWidth + gap : 0
+    const range = computeWindow({
+      scrollOffset: top ? 0 : -gridEl.getBoundingClientRect().top,
+      viewportHeight: window.innerHeight,
+      rowHeight,
+      columns: tracks.length,
+      total: feed.items.length
+    })
+    // Each spacer sits one row gap short: the gap that follows it completes the pitch.
+    slice = {
+      start: range.start,
+      end: range.end,
+      topSpacer: range.topSpacer > 0 ? range.topSpacer - gap : 0,
+      bottomSpacer: range.bottomSpacer > 0 ? range.bottomSpacer - gap : 0
+    }
+  }
+
+  function scheduleMeasure(): void {
+    if (frame !== 0) return
+    if (typeof requestAnimationFrame !== 'function') return measure(false)
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      measure(false)
+    })
+  }
+
+  // Window scroll and resize move the viewport over the rows; passive, rAF-throttled.
+  $effect(() => {
+    window.addEventListener('scroll', scheduleMeasure, { passive: true })
+    window.addEventListener('resize', scheduleMeasure, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', scheduleMeasure)
+      window.removeEventListener('resize', scheduleMeasure)
+      if (frame !== 0 && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+      frame = 0
+    }
+  })
+
+  // Re-window when the list changes; a view switch starts again at the top (D4).
+  // Opening the photo dialog does not change the list or the scroll, so the window stays put (D3).
+  $effect(() => {
+    const view = feed.view
+    const total = feed.items.length
+    const switched = shownView !== undefined && shownView !== view
+    shownView = view
+    void total
+    measure(switched)
+  })
 
   // Load older photos as the guest scrolls near the end of the grid.
   $effect(() => {
@@ -52,8 +117,11 @@
     <p class="notice">{feed.view === 'top' ? copy.ranking.empty : copy.gallery.empty}</p>
   {/if}
 
-  <ul class="grid">
-    {#each feed.items as item (item.id)}
+  <ul class="grid" bind:this={gridEl}>
+    {#if slice.topSpacer > 0}
+      <li class="spacer" aria-hidden="true" style:height="{slice.topSpacer}px"></li>
+    {/if}
+    {#each visibleItems as item (item.id)}
       {@const image = gridImage(item)}
       <li class="cell">
         <a class="tile" href={photoHash(item.id)}>
@@ -80,6 +148,9 @@
         </button>
       </li>
     {/each}
+    {#if slice.bottomSpacer > 0}
+      <li class="spacer" aria-hidden="true" style:height="{slice.bottomSpacer}px"></li>
+    {/if}
   </ul>
 
   <div bind:this={sentinel} class="gallery-footer">
@@ -124,6 +195,10 @@
 
   .cell {
     position: relative;
+  }
+
+  .spacer {
+    grid-column: 1 / -1;
   }
 
   .like {
