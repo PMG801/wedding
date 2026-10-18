@@ -139,14 +139,16 @@ La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devue
       "confirmed_at": 1790000000000,
       "original_url": "/m/o/20260926T183012.000000000Z_123e4567-e89b-42d3-a456-426614174000.heic",
       "thumb_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_t.jpg",
-      "detail_url": null
+      "detail_url": null,
+      "like_count": 3,
+      "liked_by_me": false
     }
   ],
   "next_cursor": null
 }
 ```
 
-`confirmed_at` son milisegundos Unix UTC. `thumb_url` y `detail_url` valen `null` mientras la variante no esté publicada en disco; el cliente muestra entonces un marcador y nunca intenta pintar un original HEIC en un `<img>`. `next_cursor` vale `null` en la última página.
+`like_count` es el número de «me gusta» guardados del medio y `liked_by_me` indica si la identidad de la cookie actual ya lo ha marcado (ADR-0012). `confirmed_at` son milisegundos Unix UTC. `thumb_url` y `detail_url` valen `null` mientras la variante no esté publicada en disco; el cliente muestra entonces un marcador y nunca intenta pintar un original HEIC en un `<img>`. `next_cursor` vale `null` en la última página.
 
 | Estado | Significado y respuesta |
 | --- | --- |
@@ -155,6 +157,38 @@ La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devue
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `500 Internal Server Error` | Error interno al leer la galería (`{"error":"gallery_failed"}`). |
 | `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |
+
+### `GET /api/media/top` — más gustadas
+
+La ruta exige una cookie de sesión de invitado válida. Devuelve, en una sola respuesta y sin cursor, como máximo los 50 medios visibles con al menos un «me gusta», ordenados por `like_count` descendente y, en empate, por `confirmed_at` y `id` descendentes. Cada elemento tiene la misma forma que en `GET /api/media`. Los parámetros de consulta se ignoran.
+
+```json
+{"items":[]}
+```
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | `{"items":[...]}` con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`; sin medios con «me gusta» devuelve `{"items":[]}`. |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `500 Internal Server Error` | Error interno al leer el ranking (`{"error":"gallery_failed"}`). |
+| `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |
+
+### `PUT /api/media/{id}/like` y `DELETE /api/media/{id}/like` — «me gusta»
+
+La ruta exige una cookie de sesión de invitado válida. `PUT` marca el medio con un «me gusta» de la identidad de la cookie (`guest_id`) y `DELETE` lo quita. Las dos operaciones son idempotentes: repetir `PUT` no vuelve a sumar y repetir `DELETE` no resta por debajo de lo guardado. No tienen cuerpo de petición y no dependen del interruptor de subidas. Los votos de otra cookie (otro navegador, otro dispositivo, caché borrada o cookie caducada) cuentan aparte (ADR-0012).
+
+```json
+{"id":"123e4567-e89b-42d3-a456-426614174000","like_count":4,"liked_by_me":true}
+```
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Estado final del medio para esta identidad, con `Cache-Control: no-store`. |
+| `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`). |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `404 Not Found` | No existe un medio confirmado y visible con ese identificador; un medio oculto responde igual (`{"error":"media_not_found"}`). |
+| `500 Internal Server Error` | Error interno al guardar el «me gusta» (`{"error":"like_failed"}`). |
+| `503 Service Unavailable` | El servicio de «me gusta» no está disponible (`{"error":"likes_unavailable"}`). |
 
 ### `GET /api/session` — comprobación de sesión de invitado
 
@@ -205,6 +239,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 ## Autenticación y límites comunes
 
 - El acceso de invitado se obtiene mediante el token QR convertido en cookie firmada; el token no permanece en la URL tras la redirección.
+- La cookie de invitado lleva un identificador anónimo `guest_id` firmado (ADR-0012). Una cookie válida de formato anterior se acepta y se sustituye en la respuesta por una con `guest_id` y la misma caducidad; volver a entrar por el QR con una cookie válida conserva su `guest_id`.
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
 - La ruta de originales admite JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma.

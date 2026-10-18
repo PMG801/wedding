@@ -1,0 +1,23 @@
+# ADR-0012 · «Me gusta» con identidad anónima de invitado y ranking de 50
+
+- **Estado:** Aceptado
+- **Contexto:**
+  - Con cientos de fotos, la galería cronológica sola no deja ver lo mejor. Se quiere marcar medios con «me gusta» y ver los más gustados.
+  - No hay cuentas de invitado (ADR-0007): el único rastro de un invitado es su cookie firmada de 30 días.
+  - Los novios aceptan que una misma persona vote varias veces desde otro navegador, otro dispositivo, tras borrar la caché o tras caducar la cookie. No aceptan que el recuento se pierda.
+- **Decisión:**
+  - La cookie `guest_session` pasa a llevar un identificador anónimo `guest_id` (16 bytes aleatorios) junto a su caducidad, firmados con HMAC bajo una etiqueta de dominio nueva (`v2`). Una cookie antigua válida se sigue aceptando y, en la siguiente petición de invitado, se sustituye por una `v2` con un `guest_id` nuevo y **la misma caducidad**. Volver a entrar por el QR con una cookie válida conserva su `guest_id`.
+  - Solo hay «me gusta» positivos, con acción de quitarlo; no hay votos negativos.
+  - Cada «me gusta» es una fila `(media_id, guest_id)` única en SQLite. Repetirlo no cambia nada. `media.like_count` se actualiza en la misma transacción que la fila, así que el recuento sobrevive a reinicios y no se desajusta.
+  - La galería normal sigue siendo cronológica («Recientes»). «Más gustadas» es una vista aparte: los 50 medios visibles con más «me gusta» (al menos uno), en una sola respuesta sin cursor, desempatando por `confirmed_at DESC, id DESC`.
+  - Un medio oculto no admite «me gusta» ni aparece en ninguna vista. Sus «me gusta» se conservan y vuelven a contar si se muestra de nuevo.
+  - No hay límite de peticiones en memoria ni respuesta `429`.
+- **Motivo determinante:** es lo mínimo que impide repetir votos desde el mismo navegador sin pedir registro, y SQLite ya es la fuente de verdad duradera (ADR-0003).
+- **Descartado:**
+  - Paginar por popularidad con cursor: los recuentos cambian entre páginas y desplazan resultados; el ranking de 50 evita el problema.
+  - Deduplicar por IP o huella del dispositivo: invasivo y poco fiable en una boda con wifi compartido.
+  - Recuento solo en memoria: se pierde al reiniciar.
+- **Consecuencias:**
+  - Borrar la cookie, cambiar de navegador o de dispositivo permite votar otra vez; se acepta.
+  - Rotar la clave de sesión invalida todas las cookies y, con ellas, las identidades: un invitado que vuelva a entrar podrá votar de nuevo los mismos medios.
+  - Reconstruir el índice desde el disco (cuando exista `boda reindex`) no puede recuperar los «me gusta»: solo están en SQLite y dependen de la copia de seguridad de la base.

@@ -26,6 +26,19 @@ Los tamaños se validan además como enteros positivos. Hay dos índices parcial
 
 Esta migración establece solo la forma de almacenamiento y no define nombres de claves ni políticas de producto. La capa de aplicación valida las claves de `settings` contra una lista permitida (ver "Claves de `settings`"). Los índices se llaman `media_visible_cursor` y `media_hidden_cursor`; cada uno filtra por su estado correspondiente y ordena por `(confirmed_at DESC, id DESC)`.
 
+## Migración `0002_media_likes.sql`
+
+Añade los «me gusta» (ADR-0012):
+
+| Tabla y columna | Tipo / restricción | Significado |
+|---|---|---|
+| `media.like_count` | `INTEGER NOT NULL DEFAULT 0`, entero mayor o igual que cero | Número de filas de `media_likes` del medio. |
+| `media_likes.media_id` | `TEXT NOT NULL`, referencia a `media.id` | Medio marcado. |
+| `media_likes.guest_id` | `TEXT NOT NULL`, 32 caracteres hexadecimales | Identidad anónima de la cookie de invitado. |
+| `media_likes.created_at` | `INTEGER NOT NULL` | Instante del «me gusta» en milisegundos Unix UTC. |
+
+La clave primaria `(media_id, guest_id)` impide dos «me gusta» de la misma identidad al mismo medio. Insertar o borrar la fila y ajustar `media.like_count` ocurren en la misma transacción, así que el recuento no se desajusta ni se pierde al reiniciar. El índice parcial `media_visible_popularity` ordena por `(like_count DESC, confirmed_at DESC, id DESC)` las filas `visible` con `like_count > 0`, para el ranking de las 50 más gustadas. Ocultar un medio no borra sus «me gusta».
+
 ## Claves de `settings`
 
 La tabla `settings` guarda solo ajustes operativos, nunca secretos. La capa de aplicación acepta únicamente las claves de una lista permitida; cualquier otra clave se rechaza sin escribir nada.
