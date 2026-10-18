@@ -24,7 +24,7 @@ Let the admin pin content (event info, a game, announcements) at the top of the 
 - **S7** Optional image (D5): only an existing confirmed medium can be referenced; while it is hidden the guest sees the entry without image.
 
 ## Tasks
-- [ ] **T0 [S5, D1-D7] — Contract: ADR-0013, `docs/api.md`, `docs/data-model.md` (migration 0003)** · worker · branch `feat/pinned-posts-contract` · commit: pending
+- [x] **T0 [S5, D1-D7] — Contract: ADR-0013, `docs/api.md`, `docs/data-model.md` (migration 0003)** · worker · branch `feat/pinned-posts-contract` · evidence: docs re-read, tables consistent; parent fixes: `position` CHECK `>= 0` with temporary high positions on reorder (UNIQUE is checked per row), `detail_url` nullable in `image`; worker readings kept: all three body fields required, `body` not trimmed, guest route also has `500 pinned_failed`/`503 pinned_unavailable`, `PUT /{id}` keeps position, literal `/order` route wins over `/{id}` · commit: this commit
 - [ ] **T1 [S1, S3, S6, S7] — Migration `0003_pinned_items` + store with validation** · worker, test-first · risk: item 1 (schema migration) → own commit · branch `feat/pinned-posts-storage` · commit: pending
 - [ ] **T2 [S1, S2, S6, S7] — Admin CRUD + reorder endpoints and guest read endpoint** · worker, test-first · branch `feat/pinned-posts-api` · commit: pending
 - [ ] **T3 [S4, S3] — Frontend collapsible «Fijados» section and admin editor** · worker, test-first for API client and pure logic · branch `feat/pinned-posts-ui` · commit: pending

@@ -20,3 +20,4 @@ Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido*
 - [ADR-0010 · Entrega y copia: fuera de la aplicación](0010-entrega-rsync-fuera-aplicacion.md)
 - [ADR-0011 · Los medios publicados exigen la sesión de invitado](0011-medios-tras-sesion-invitado.md)
 - [ADR-0012 · «Me gusta» con identidad anónima de invitado y ranking de 50](0012-me-gusta-invitado-anonimo.md)
+- [ADR-0013 · Publicaciones fijadas: texto del administrador, hasta cinco, con imagen opcional de la galería](0013-publicaciones-fijadas.md)

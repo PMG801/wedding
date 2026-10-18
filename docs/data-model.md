@@ -39,6 +39,24 @@ Añade los «me gusta» (ADR-0012):
 
 La clave primaria `(media_id, guest_id)` impide dos «me gusta» de la misma identidad al mismo medio. Insertar o borrar la fila y ajustar `media.like_count` ocurren en la misma transacción, así que el recuento no se desajusta ni se pierde al reiniciar. El índice parcial `media_visible_popularity` ordena por `(like_count DESC, confirmed_at DESC, id DESC)` las filas `visible` con `like_count > 0`, para el ranking de las 50 más gustadas. Ocultar un medio no borra sus «me gusta».
 
+## Migración `0003_pinned_items.sql`
+
+Añade la tabla de publicaciones fijadas (ADR-0013). No modifica `media`, `media_likes` ni `settings`; solo crea `pinned_items`.
+
+| Tabla y columna | Tipo / restricción | Significado |
+|---|---|---|
+| `pinned_items.id` | `TEXT PRIMARY KEY`, UUID v4 | Identificador de la entrada. |
+| `pinned_items.title` | `TEXT NOT NULL`, `CHECK (length(title) BETWEEN 1 AND 120)` | Título en texto plano, ya recortado por la aplicación. |
+| `pinned_items.body` | `TEXT NOT NULL DEFAULT ''`, `CHECK (length(body) <= 2000)` | Cuerpo en texto plano; admite saltos de línea. |
+| `pinned_items.media_id` | `TEXT NULL`, referencia a `media.id` | Medio opcional de la galería (visible u oculto). `NULL` si la entrada no tiene imagen. |
+| `pinned_items.position` | `INTEGER NOT NULL UNIQUE`, `CHECK (position >= 0)` | Posición en el orden manual; la aplicación mantiene los valores de 0 a 4. |
+| `pinned_items.created_at` | `INTEGER NOT NULL` | Instante de creación en milisegundos Unix UTC. |
+| `pinned_items.updated_at` | `INTEGER NOT NULL` | Instante de la última edición en milisegundos Unix UTC. |
+
+La longitud se cuenta en caracteres (puntos de código Unicode), como en ADR-0013 (D7). SQLite no valida los caracteres de control ni el recorte de espacios: lo hace la aplicación antes de escribir.
+
+El límite de cinco entradas y la reescritura del orden (`position`) no se pueden expresar solo con restricciones: el almacén los aplica dentro de una transacción. Al crear, la nueva fila ocupa la posición siguiente; al borrar, las posiciones restantes se compactan; al reordenar, se reasignan de 0 a 4 en la misma transacción, pasando primero por posiciones temporales altas para no chocar con `UNIQUE`. La restricción `UNIQUE` sobre `position` impide dos entradas en la misma posición.
+
 ## Claves de `settings`
 
 La tabla `settings` guarda solo ajustes operativos, nunca secretos. La capa de aplicación acepta únicamente las claves de una lista permitida; cualquier otra clave se rechaza sin escribir nada.

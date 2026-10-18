@@ -1,0 +1,27 @@
+# ADR-0013 · Publicaciones fijadas: texto del administrador, hasta cinco, con imagen opcional de la galería
+
+- **Estado:** Aceptado
+- **Contexto:**
+  - Los novios quieren fijar contenido útil (información del evento, un juego, avisos) encima de la galería, sin que ocupe siempre la pantalla.
+  - El contenido fijado es texto escrito por el administrador, no un medio subido por un invitado. Mezclarlo con `media` obligaría a tocar la moderación, la paginación cronológica y el ranking de «me gusta» (ADR-0012).
+  - El formato debe ser seguro: ni HTML ni Markdown que haya que sanear, y sin subidas nuevas por esta vía.
+  - La galería ya está tras la sesión de invitado (ADR-0011); el contenido fijado debe seguir esa misma frontera.
+- **Decisión:**
+  - **D1 · Qué se fija.** Una entrada de texto con título, cuerpo y una imagen opcional, guardada en su propia tabla `pinned_items` (migración `0003_pinned_items.sql`, ver `docs/data-model.md`). La tabla `media` no cambia.
+  - **D2 · Sección plegable.** La galería muestra una sección «Fijados» encima de las vistas, desplegada hasta que el invitado la pliega. La elección se recuerda por dispositivo en `localStorage` con la clave `boda.pinned.collapsed`. Es una preferencia de presentación y no pasa por el servidor.
+  - **D3 · Cantidad.** Como máximo cinco entradas, con un orden manual que fija el administrador. Crear una sexta responde `409 pinned_limit_reached` y no guarda nada.
+  - **D4 · Formato.** Solo texto plano, sin HTML ni Markdown. Se muestra como texto y los saltos de línea se conservan.
+  - **D5 · Imagen opcional = medio existente.** El administrador referencia por `media_id` una foto ya subida a la galería; no hay ruta nueva de subida. El endpoint de invitados devuelve la imagen solo mientras el medio esté visible y tenga miniatura. Si está oculto, la entrada se muestra sin imagen y no se elimina.
+  - **D6 · Borrado permitido.** La regla «no se borra» de la moderación (`docs/api.md`, `PATCH /api/admin/media/{id}`) se aplica a los medios de los invitados. Una entrada fijada es texto escrito por el administrador, así que puede borrarla.
+  - **D7 · Contrato.** Título de 1 a 120 caracteres tras recortar espacios; cuerpo de 0 a 2000 caracteres; ambos se cuentan en puntos de código Unicode. El cuerpo admite saltos de línea (`\n`) y ningún otro carácter de control; el título no admite ninguno. El cuerpo JSON no supera 8 KiB y los campos desconocidos se rechazan. Los errores son `400 invalid_pinned_item`, `401 admin_session_required`, `404 pinned_not_found`, `409 pinned_limit_reached` y `400 invalid_pinned_order`. El endpoint de invitados exige la sesión de invitado y responde `401` con el texto `guest session required`, como el resto de rutas de invitado. Los endpoints y sus cuerpos están en `docs/api.md`.
+- **Motivo determinante:** una tabla propia con texto y una referencia opcional a un medio ya publicado mantiene intacto el modelo de medios, la galería cronológica y la moderación, y no añade ninguna superficie de subida ni de renderizado de contenido arbitrario.
+- **Descartado:**
+  - **Fijar un medio existente como la propia entrada.** Un medio fijado no tendría título ni cuerpo, y la visibilidad de la entrada quedaría ligada a la del medio, con el efecto de mezclar moderación y contenido informativo.
+  - **Markdown o HTML.** Exigen sanear el contenido en cliente o en servidor y amplían la superficie de ataque sin necesidad para avisos cortos.
+  - **Ruta de subida de imagen desde el administrador.** Duplicaría la validación de formatos, tamaños, derivados y espacio libre (ADR-0005 y ADR-0008) para un caso que la galería ya cubre.
+- **Consecuencias:**
+  - Un medio referenciado y ocultado deja la entrada sin imagen hasta que se vuelva a mostrar; no hay aviso al administrador.
+  - Borrar una entrada es definitivo, a diferencia de ocultar un medio. Se acepta porque el contenido es texto del administrador.
+  - El orden se reescribe dentro de una transacción en la aplicación; la base de datos solo garantiza el rango de posiciones y su unicidad.
+  - Las reglas de longitud de SQLite cuentan caracteres, mientras que los caracteres de control solo los valida la aplicación.
+  - El rango de cinco entradas es una decisión de producto: subirlo exige una migración de la restricción de posición y revisar la interfaz.

@@ -190,6 +190,139 @@ La ruta exige una cookie de sesión de invitado válida. `PUT` marca el medio co
 | `500 Internal Server Error` | Error interno al guardar el «me gusta» (`{"error":"like_failed"}`). |
 | `503 Service Unavailable` | El servicio de «me gusta» no está disponible (`{"error":"likes_unavailable"}`). |
 
+### `GET /api/pinned` — publicaciones fijadas para invitados
+
+Exige la sesión de invitado (`guest_session`). Devuelve las publicaciones fijadas por el administrador en su orden (posición ascendente), como máximo 5 (ADR-0013). Son independientes de la galería: nunca aparecen en `GET /api/media`, no tienen cursor y no cuentan para la paginación ni para el ranking.
+
+`image` se resuelve en cada petición: vale `null` si la entrada no tiene medio referenciado, si el medio está oculto o si no tiene miniatura publicada. Ocultar o volver a mostrar un medio cambia la respuesta sin tocar la entrada. `detail_url` puede valer `null` si el detalle aún no está publicado; el cliente usa entonces la miniatura.
+
+```json
+{
+  "items": [
+    {
+      "id": "0b6f1c2e-4d3a-4f8e-9a1b-2c3d4e5f6a7b",
+      "title": "Horario del día",
+      "body": "13:00 ceremonia\n14:30 aperitivo",
+      "image": {
+        "id": "123e4567-e89b-42d3-a456-426614174000",
+        "thumb_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_t.jpg",
+        "detail_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_d.jpg"
+      }
+    }
+  ]
+}
+```
+
+`body` es texto plano con los saltos de línea conservados (`\n`); el cliente lo muestra como texto, nunca como HTML. Las URL de `image` están protegidas por la misma sesión que `/m/*`.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | `{"items":[...]}` con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`. Sin entradas devuelve `{"items":[]}`. |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `500 Internal Server Error` | Error interno al leer las publicaciones (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El servicio de publicaciones fijadas no está disponible (`{"error":"pinned_unavailable"}`). |
+
+### `GET /api/admin/pinned` — publicaciones fijadas para el administrador
+
+Exige la sesión de administrador. Devuelve las mismas entradas que `GET /api/pinned`, en el mismo orden, con los campos de gestión. `image` se resuelve igual que en la vista de invitado.
+
+```json
+{
+  "items": [
+    {
+      "id": "0b6f1c2e-4d3a-4f8e-9a1b-2c3d4e5f6a7b",
+      "title": "Horario del día",
+      "body": "13:00 ceremonia\n14:30 aperitivo",
+      "media_id": "123e4567-e89b-42d3-a456-426614174000",
+      "position": 0,
+      "created_at": 1790000000000,
+      "updated_at": 1790000000000,
+      "image": {
+        "id": "123e4567-e89b-42d3-a456-426614174000",
+        "thumb_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_t.jpg",
+        "detail_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_d.jpg"
+      }
+    }
+  ]
+}
+```
+
+`media_id` es el medio referenciado, esté o no oculto, o `null` si la entrada no tiene imagen. `position` es el índice 0-based del orden. `created_at` y `updated_at` son milisegundos Unix UTC.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | `{"items":[...]}` con `Cache-Control: no-store`. |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `500 Internal Server Error` | Error interno al leer las publicaciones (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El almacén de publicaciones no está conectado en este proceso (`{"error":"pinned_unavailable"}`). |
+
+### `POST /api/admin/pinned` — crear una publicación fijada
+
+Exige la sesión de administrador. Cuerpo JSON de como máximo 8 KiB, con exactamente estos campos:
+
+```json
+{"title":"Horario del día","body":"13:00 ceremonia\n14:30 aperitivo","media_id":"123e4567-e89b-42d3-a456-426614174000"}
+```
+
+- `title`: entre 1 y 120 puntos de código Unicode tras recortar los espacios de los extremos. Sin caracteres de control.
+- `body`: entre 0 y 2000 puntos de código Unicode. Admite `\n` y ningún otro carácter de control. Texto plano (ADR-0013, D4).
+- `media_id`: UUIDv4 canónico de un medio confirmado, visible u oculto, o `null` para una entrada sin imagen.
+- La nueva entrada se añade al final del orden.
+
+Las reglas de `title`, `body` y `media_id` se aplican igual en `PUT /api/admin/pinned/{id}`. Un cuerpo que no es JSON, un campo desconocido, una regla incumplida, un `media_id` que no corresponde a un medio confirmado o un cuerpo mayor de 8 KiB responde `400 invalid_pinned_item`. Con cinco entradas ya guardadas, la sexta se rechaza sin escribir nada.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `201 Created` | Entrada creada; cuerpo con el elemento de `GET /api/admin/pinned`. |
+| `400 Bad Request` | Cuerpo no válido, campo desconocido, regla incumplida o `media_id` inexistente (`{"error":"invalid_pinned_item"}`). |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `409 Conflict` | Ya hay cinco publicaciones fijadas (`{"error":"pinned_limit_reached"}`); no se guarda nada. |
+| `500 Internal Server Error` | Error interno al guardar (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El almacén de publicaciones no está conectado en este proceso (`{"error":"pinned_unavailable"}`). |
+
+### `PUT /api/admin/pinned/{id}` — editar una publicación fijada
+
+Exige la sesión de administrador. Sustitución completa: el cuerpo tiene los mismos campos y reglas que `POST /api/admin/pinned`. La posición no cambia; para reordenar se usa `PUT /api/admin/pinned/order`.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Entrada actualizada; cuerpo con el elemento de `GET /api/admin/pinned`. |
+| `400 Bad Request` | Cuerpo no válido o regla incumplida (`{"error":"invalid_pinned_item"}`). |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `404 Not Found` | No existe una entrada con ese identificador (`{"error":"pinned_not_found"}`). |
+| `500 Internal Server Error` | Error interno al guardar (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El almacén de publicaciones no está conectado en este proceso (`{"error":"pinned_unavailable"}`). |
+
+### `DELETE /api/admin/pinned/{id}` — borrar una publicación fijada
+
+Exige la sesión de administrador. Borra la entrada (ADR-0013, D6) y compacta las posiciones de las restantes, que quedan consecutivas desde 0. No afecta a los medios referenciados.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `204 No Content` | Entrada borrada; cuerpo vacío. |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `404 Not Found` | No existe una entrada con ese identificador (`{"error":"pinned_not_found"}`). |
+| `500 Internal Server Error` | Error interno al borrar (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El almacén de publicaciones no está conectado en este proceso (`{"error":"pinned_unavailable"}`). |
+
+### `PUT /api/admin/pinned/order` — reordenar las publicaciones fijadas
+
+Exige la sesión de administrador. Cuerpo JSON con la lista completa de identificadores en el nuevo orden:
+
+```json
+{"ids":["0b6f1c2e-4d3a-4f8e-9a1b-2c3d4e5f6a7b","5c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f"]}
+```
+
+`ids` debe contener exactamente los identificadores de las entradas actuales, sin duplicados. La posición de cada identificador en la lista pasa a ser su nueva posición (0, 1, 2…). Si la validación falla, el orden anterior se conserva.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | `{"items":[...]}` con los elementos de `GET /api/admin/pinned` en el nuevo orden. |
+| `400 Bad Request` | `ids` ausente o no es una lista, hay duplicados, falta o sobra algún identificador, o el cuerpo no es JSON válido (`{"error":"invalid_pinned_order"}`). |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `500 Internal Server Error` | Error interno al guardar el orden (`{"error":"pinned_failed"}`). |
+| `503 Service Unavailable` | El almacén de publicaciones no está conectado en este proceso (`{"error":"pinned_unavailable"}`). |
+
 ### `GET /api/session` — comprobación de sesión de invitado
 
 Responde `204 No Content` con `Cache-Control: no-store` si la cookie `guest_session` es válida, y `401 Unauthorized` (texto `guest session required\n`) si falta, está alterada o ha caducado. Caddy la usa con `forward_auth` para proteger los medios, y el frontend puede usarla para saber si el invitado ya entró por el QR.
@@ -243,6 +376,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
 - La ruta de originales admite JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma.
+- Las publicaciones fijadas tienen límites propios: como máximo 5 entradas, título de 1 a 120 caracteres, cuerpo de hasta 2000 y cuerpo JSON de hasta 8 KiB (ADR-0013).
 
 ## Información pendiente para completar el contrato
 
