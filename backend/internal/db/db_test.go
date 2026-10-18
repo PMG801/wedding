@@ -109,7 +109,8 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 			want int
 		}{
 			{name: "busy_timeout", want: 5000},
-			{name: "synchronous", want: 1}, // NORMAL
+			{name: "synchronous", want: 2}, // FULL
+			{name: "journal_size_limit", want: 67108864},
 			{name: "foreign_keys", want: 1},
 		} {
 			var got int

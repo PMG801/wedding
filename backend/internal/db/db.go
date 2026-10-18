@@ -26,7 +26,10 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	query := dsnURL.Query()
 	query.Set("mode", "rwc")
 	query.Add("_pragma", "busy_timeout(5000)")
-	query.Add("_pragma", "synchronous(NORMAL)")
+	// FULL: a confirmed upload survives power loss, not only a process crash.
+	query.Add("_pragma", "synchronous(FULL)")
+	// Truncate the WAL back to 64 MiB after checkpoints.
+	query.Add("_pragma", "journal_size_limit(67108864)")
 	query.Add("_pragma", "foreign_keys(ON)")
 	dsnURL.RawQuery = query.Encode()
 
