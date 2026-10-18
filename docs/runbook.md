@@ -289,6 +289,15 @@ Cada invitado puede marcar fotos y vídeos con un corazón, en la cuadrícula y 
 - Rotar `BODA_SESSION_KEY` crea identidades nuevas para todos: los invitados podrían volver a votar lo que ya votaron. Evítalo durante el evento.
 - Ocultar un medio lo quita del ranking y bloquea sus «me gusta», pero no los borra: al mostrarlo de nuevo recupera su recuento.
 
+## Publicaciones fijadas («Fijados»)
+
+El administrador puede fijar hasta cinco entradas de texto (horarios, avisos, un juego) encima de la galería, desde su pantalla (ADR-0013). Los invitados las ven en la sección plegable «Fijados»; cada dispositivo recuerda si la dejó plegada.
+
+- Solo texto plano: título de 1 a 120 caracteres y cuerpo de hasta 2000, con saltos de línea. No se interpreta HTML ni Markdown.
+- Imagen opcional: una foto ya subida a la galería. Para elegirla, ábrela en la galería y copia el identificador de la dirección (lo que va después de `#/foto/`). Si esa foto se oculta, la entrada sigue fijada pero sin imagen; al mostrarla, la imagen vuelve.
+- Una sexta entrada se rechaza: borra o edita una de las existentes. El orden se cambia con los botones de subir y bajar.
+- Borrar una entrada fijada es definitivo (solo es texto del administrador); nunca borra la foto que usaba. Se guardan en SQLite (`pinned_items`) y entran en la copia de seguridad de la base.
+
 ## Comportamiento de la subida en el cliente
 
 - Si una subida no recibe progreso durante 60 segundos, el cliente la aborta y la reintenta. No hay plazo total: un vídeo grande puede tardar lo que haga falta mientras siga avanzando.

@@ -305,3 +305,63 @@ if [[ "$unliked" != *'"like_count":1,"liked_by_me":false}'*' 200' ]]; then
   exit 1
 fi
 echo 'Likes per guest, ranking, hidden exclusion and persistence across restart passed.'
+
+# Pinned posts: admin creates with an image, guests see it, hiding the photo drops only the image, cap of 5, reorder and delete.
+pinned_admin() {
+  curl -sS -w ' %{http_code}' -X "$1" -H "Cookie: $admin_cookie" -H 'Content-Type: application/json' \
+    ${3:+--data "$3"} "$smoke_base_url/api/admin/pinned$2"
+}
+guest_pinned() {
+  curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/pinned"
+}
+# The pinned image needs a published thumbnail, so give the smoke photo one first.
+thumb_status="$(printf '\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9' |
+  curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Cookie: $guest_cookie" -H 'Content-Type: image/jpeg' \
+    --data-binary @- "$smoke_base_url/api/media/$smoke_photo_id/derived?variant=t")"
+if [[ "$thumb_status" != 20[01] ]]; then
+  echo "Uploading the smoke photo thumbnail returned HTTP $thumb_status; want 200 or 201." >&2
+  exit 1
+fi
+created="$(pinned_admin POST '' '{"title":"Horario","body":"Ceremonia a las 12:00\nBanquete a las 14:00","media_id":"'"$smoke_photo_id"'"}')"
+pinned_id="$(printf '%s' "$created" | sed -n 's/^{"id":"\([0-9a-f-]\{36\}\)".*/\1/p')"
+if [[ "$created" != *' 201' || -z "$pinned_id" ]]; then
+  echo "Creating a pinned post did not return 201 with an id: $created" >&2
+  exit 1
+fi
+if [[ "$(curl -sS -o /dev/null -w '%{http_code}' "$smoke_base_url/api/pinned")" != 401 ||
+  "$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{"title":"x","body":"","media_id":null}' "$smoke_base_url/api/admin/pinned")" != 401 ]]; then
+  echo 'Pinned routes answered without the guest or admin session.' >&2
+  exit 1
+fi
+visible_pinned="$(guest_pinned)"
+if [[ "$visible_pinned" != '{"items":[{"id":"'"$pinned_id"'","title":"Horario","body":"Ceremonia a las 12:00\nBanquete a las 14:00","image":{"id":"'"$smoke_photo_id"'"'* ]]; then
+  echo "Guests do not see the pinned post with its image: $visible_pinned" >&2
+  exit 1
+fi
+if [[ "$(moderate hidden)" != 200 || "$(guest_pinned)" != *'"image":null}]}' || "$(moderate visible)" != 200 ]]; then
+  echo 'Hiding the referenced photo did not drop only the pinned image.' >&2
+  exit 1
+fi
+for n in 2 3 4 5; do
+  if [[ "$(pinned_admin POST '' '{"title":"Aviso '"$n"'","body":"","media_id":null}')" != *' 201' ]]; then
+    echo "Creating pinned post $n failed." >&2
+    exit 1
+  fi
+done
+sixth="$(pinned_admin POST '' '{"title":"Sobra","body":"","media_id":null}')"
+if [[ "$sixth" != '{"error":"pinned_limit_reached"}'*' 409' || "$(guest_pinned | grep -o '"id":"[0-9a-f-]\{36\}","title"' | wc -l)" != 5 ]]; then
+  echo "A sixth pinned post was not rejected with 409 or changed the list: $sixth" >&2
+  exit 1
+fi
+order_ids="$(guest_pinned | grep -o '"id":"[0-9a-f-]\{36\}","title"' | sed 's/"id":"\([^"]*\)".*/\1/' | tac | sed 's/.*/"&"/' | paste -sd, -)"
+if [[ "$(pinned_admin PUT /order '{"ids":['"$order_ids"']}')" != *' 200' ||
+  "$(guest_pinned)" != '{"items":[{"id":"'"$(printf '%s' "$order_ids" | cut -d, -f1 | tr -d '"')"'"'* ]]; then
+  echo 'Reordering pinned posts did not change the guest order.' >&2
+  exit 1
+fi
+if [[ "$(pinned_admin DELETE "/$pinned_id")" != ' 204' || "$(pinned_admin DELETE "/$pinned_id")" != *' 404' ||
+  "$(guest_pinned)" == *"$pinned_id"* ]]; then
+  echo 'Deleting a pinned post did not remove it exactly once.' >&2
+  exit 1
+fi
+echo 'Pinned posts sessions, image visibility, cap of 5, reorder and delete passed.'
