@@ -25,7 +25,7 @@ func guestEntryHandler(eventToken string, sessionKey []byte) http.Handler {
 			return
 		}
 
-		http.SetCookie(w, auth.NewGuestCookie(sessionKey, time.Now()))
+		http.SetCookie(w, auth.RenewGuestCookie(sessionKey, r, time.Now()))
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 }

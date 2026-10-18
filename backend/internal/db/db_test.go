@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -24,8 +25,8 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("user_version = %d; want 1", version)
+	if version != 2 {
+		t.Fatalf("user_version = %d; want 2", version)
 	}
 
 	var journalMode string
@@ -36,7 +37,7 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		t.Fatalf("journal_mode = %q; want wal", journalMode)
 	}
 
-	wantTables := []string{"media", "settings"}
+	wantTables := []string{"media", "media_likes", "settings"}
 	rows, err := database.QueryContext(ctx, "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		t.Fatalf("tables = %v; want exactly %v", tables, wantTables)
 	}
 
-	wantIndexes := []string{"media_hidden_cursor", "media_visible_cursor"}
+	wantIndexes := []string{"media_hidden_cursor", "media_visible_cursor", "media_visible_popularity"}
 	indexRows, err := database.QueryContext(ctx, "SELECT name, sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'media' AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +73,12 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		}
 		indexes = append(indexes, name)
 		definition = strings.ToLower(definition)
+		if name == "media_visible_popularity" {
+			if !strings.Contains(definition, "on media (like_count desc, confirmed_at desc, id desc)") || !strings.Contains(definition, "where visibility = 'visible' and like_count > 0") {
+				t.Errorf("index %s has unexpected ranking definition: %s", name, definition)
+			}
+			continue
+		}
 		if !strings.Contains(definition, "on media (confirmed_at desc, id desc)") {
 			t.Errorf("index %s has unexpected cursor ordering: %s", name, definition)
 		}
@@ -203,5 +210,72 @@ func TestMigrationsRollbackFailureAndRejectNewerVersion(t *testing.T) {
 	}
 	if err := applyMigrations(ctx, database, availableMigrations); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("applyMigrations() error = %v; want newer-version rejection", err)
+	}
+}
+
+// TestMigration0002AddsLikesToExistingVersionOneDatabase upgrades a database
+// that already holds media rows and was created at schema version 1.
+func TestMigration0002AddsLikesToExistingVersionOneDatabase(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v1.db")
+	const mediaID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const guestID = "0123456789abcdef0123456789abcdef"
+
+	v1Contents, err := fs.ReadFile(migrationFiles, "0001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMigrations(ctx, legacy, fstest.MapFS{"0001_initial.sql": &fstest.MapFile{Data: v1Contents}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, 'legacy.jpg', 'image/jpeg', 3, 1700000000000)", mediaID); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() upgrade error = %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Fatalf("user_version after upgrade = %d; want 2", version)
+	}
+	var likeCount int
+	if err := database.QueryRowContext(ctx, "SELECT like_count FROM media WHERE id = ?", mediaID).Scan(&likeCount); err != nil {
+		t.Fatal(err)
+	}
+	if likeCount != 0 {
+		t.Fatalf("existing media like_count = %d; want 0", likeCount)
+	}
+
+	if _, err := database.ExecContext(ctx, "INSERT INTO media_likes (media_id, guest_id, created_at) VALUES (?, ?, 1700000000001)", mediaID, guestID); err != nil {
+		t.Fatalf("insert valid like: %v", err)
+	}
+	for _, test := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "duplicate guest like", sql: "INSERT INTO media_likes (media_id, guest_id, created_at) VALUES ('" + mediaID + "', '" + guestID + "', 1)"},
+		{name: "unknown media", sql: "INSERT INTO media_likes (media_id, guest_id, created_at) VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'fedcba9876543210fedcba9876543210', 1)"},
+		{name: "non-hex guest", sql: "INSERT INTO media_likes (media_id, guest_id, created_at) VALUES ('" + mediaID + "', 'GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG', 1)"},
+		{name: "negative like count", sql: "UPDATE media SET like_count = -1 WHERE id = '" + mediaID + "'"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := database.ExecContext(ctx, test.sql); err == nil {
+				t.Error("statement unexpectedly succeeded")
+			}
+		})
 	}
 }
