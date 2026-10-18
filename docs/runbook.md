@@ -123,12 +123,18 @@ Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `
 | `BODA_SESSION_KEY` | **Sí** | 32 bytes aleatorios | Firma las cookies. |
 | `BODA_MAX_PHOTO_BYTES` | No | `52428800` | Límite de foto: 50 MB. |
 | `BODA_MAX_VIDEO_BYTES` | No | `1610612736` | Límite de vídeo: 1,5 GB. |
+| `BODA_MAX_DERIVATIVE_BYTES` | No | `8388608` | Límite de cada miniatura o detalle JPEG: 8 MiB. Por encima, `413 derivative_too_large` sin leer el cuerpo. |
 | `BODA_MAX_CONCURRENT_UPLOADS` | No | `30` | Por encima, 503 con `Retry-After`. |
 | `BODA_UPLOAD_IDLE_TIMEOUT` | No | `90s` | Plazo de inactividad, no de duración total. |
 | `BODA_DISK_MIN_FREE_BYTES` | No | `16106127360` | 15 GB; por debajo se cortan las subidas automáticamente. |
 | `BODA_CLEANUP_INTERVAL` | No | `10m` | Intervalo de limpieza y conciliación. |
+| `BODA_STAGED_DERIVATIVE_TTL` | No | `24h` | Tiempo que se guardan miniaturas cuyo original nunca se confirma; después la conciliación las borra. |
+| `BODA_BACKUP_INTERVAL` | No | `24h` | Intervalo de la copia de SQLite en `backup/` (ver «Copias de seguridad de SQLite»). |
+| `BODA_BACKUP_KEEP` | No | `7` | Número de copias de SQLite que se conservan; se borran las más antiguas. |
 | `BODA_THUMB_FALLBACK` | No | `off` | Pasa a `on` en la fase 2. |
 | `BODA_LOG_LEVEL` | No | `info` | Valores válidos: `debug`, `info`, `warn` o `error`. |
+
+`GOMEMLIMIT=512MiB` no es una variable `BODA_*`: Compose la fija en el contenedor `app` como límite blando del recolector de Go, por debajo de su límite de memoria de 1 GiB.
 
 ### Generar y aprovisionar el acceso QR
 
@@ -147,7 +153,7 @@ La cookie de invitado siempre lleva `Secure`, HttpOnly y SameSite=Lax: no existe
 
 **Validación al arrancar:** `boda check` y `boda serve` cargan la misma configuración y validan el almacenamiento antes de continuar. Si falta un secreto, si `BODA_DATA_DIR` no existe, si no se puede escribir en él o si `tmp/` y `originals/` están en sistemas de archivos distintos, **la aplicación no arranca**. La raíz debe existir previamente (por ejemplo, como montaje); la aplicación no la crea. Dentro de ella se preparan los directorios administrados con permisos privados y se comprueba que `tmp/` y `originals/` comparten sistema de archivos.
 
-Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `synchronous=NORMAL` y claves foráneas. En la primera apertura se aplica la migración inicial, registrada en `PRAGMA user_version`, que crea las tablas `media` y `settings`. `boda check` también realiza esta inicialización y cierra la conexión al terminar, por lo que sirve para validar el despliegue antes de arrancar el servidor.
+Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `synchronous=FULL`, un `journal_size_limit` de 64 MiB para truncar el WAL tras los puntos de control, y claves foráneas. `synchronous=FULL` hace que cada confirmación espere al disco: una caída de energía no pierde subidas ya confirmadas aunque cueste algo más de latencia. En la primera apertura se aplica la migración inicial, registrada en `PRAGMA user_version`, que crea las tablas `media` y `settings`. `boda check` también realiza esta inicialización y cierra la conexión al terminar, por lo que sirve para validar el despliegue antes de arrancar el servidor.
 
 ---
 
@@ -202,6 +208,79 @@ Los límites los pones tú con variables de entorno y la prueba se detiene en el
 
 Para provocar los límites del servidor sin agotar la máquina, baja sus variables `BODA_*` en el entorno de pruebas (por ejemplo `BODA_DISK_MIN_FREE_BYTES` para obtener 507, `BODA_MAX_PHOTO_BYTES` para 413 o `BODA_MAX_CONCURRENT_UPLOADS` para 503). Los códigos 408, 413, 503 y 507 se cuentan aparte (`limit_hits`) y no se consideran fallos. Con HTTPS autofirmado añade `LOAD_INSECURE=1`. Las fotos subidas quedan en el volumen: bórralo al terminar.
 
+## Pruebas de carga T3 y T5 en el A1 de QA
+
+Estas pruebas reproducen en el servidor de QA las condiciones del evento: 25 subidas de vídeo lentas a la vez (T3) y, en paralelo, lecturas de galería y de rangos de vídeo (T5). Corren desde un equipo generador, nunca en el servidor.
+
+- **Generador:** `scripts/load/slow-upload.sh` (T3) y `scripts/load/readers.sh` (T5). Requieren bash, curl y Docker o k6.
+- **Servidor:** `scripts/load/sample-server.sh`, solo lectura; necesita sudo para leer `data/tmp`.
+- **Comunes:** `LOAD_BASE_URL` y `LOAD_EVENT_TOKEN` son obligatorias y no tienen valor por defecto. `LOAD_RUN_DIR` es la carpeta de resultados. Los resultados contienen métricas del servidor: no los subas a Git.
+
+| Variable | Por defecto | Efecto |
+| --- | --- | --- |
+| `LOAD_SLOW_COUNT` | 25 | Número de subidas lentas (T3). |
+| `LOAD_SLOW_BYTES` | 200M | Tamaño de cada vídeo; admite K, M y G. |
+| `LOAD_SLOW_MBPS` | 3 | Ancho de banda por conexión, en Mbit/s. |
+| `LOAD_SLOW_RETRY` | 0 | Si vale 1, reenvía cada subida con el mismo identificador (reenvío idempotente). |
+| `LOAD_MAX_TOTAL_BYTES` | 12G | Presupuesto total de bytes enviados. |
+| `LOAD_MAX_DURATION` | 5400 s | Tope de tiempo de la tanda T3. |
+| `LOAD_STOP_ON_STATUS` | 507 | Detiene la tanda al recibir este código. |
+| `LOAD_DURATION` | 10m | Duración de las lecturas T5. |
+| `LOAD_GALLERY_VUS` | 30 | Usuarios virtuales que recorren la galería. |
+| `LOAD_RANGE_VUS` | 10 | Usuarios virtuales que reproducen vídeos con saltos (Range). |
+| `LOAD_RANGE_BYTES` | 1 MiB | Tamaño de cada petición Range. |
+| `LOAD_GALLERY_P95_MS` | 500 | Umbral de p95 de la galería. |
+| `LOAD_MAX_ERROR_RATE` | 0.05 | Tasa máxima de errores antes de abortar T5. |
+
+**Procedimiento:**
+
+1. Si el QA está vacío, siembra vídeos con una tanda de T3.
+2. En el servidor, arranca el muestreo durante una hora: `sudo LOAD_SAMPLE_PROJECT=boda scripts/load/sample-server.sh --data-dir /srv/boda/data --interval 15 --duration 3600 --out /srv/boda/loadtest-samples/AAAA-MM-DD`.
+3. En el generador, define el destino y la carpeta de resultados y lanza T3 y T5 a la vez:
+
+   ```sh
+   export LOAD_BASE_URL=https://qa.ejemplo.org LOAD_EVENT_TOKEN='…' LOAD_RUN_DIR=loadtest/results/AAAA-MM-DD
+   LOAD_SLOW_COUNT=25 LOAD_SLOW_BYTES=200M LOAD_SLOW_MBPS=3 scripts/load/slow-upload.sh &
+   LOAD_DURATION=12m scripts/load/readers.sh &
+   wait
+   ```
+
+   Con 200 MB a 3 Mbit/s, cada subida tarda unos 9 minutos.
+4. Copia `samples.csv` e `iostat.log` a `LOAD_RUN_DIR` y borra las subidas de prueba del QA.
+
+**Criterios de lectura:**
+
+- `summary.txt`: al menos 25 filas `put 201`. Explica cualquier 507, 503 o 5xx. La línea `STOP flag was set` indica un rechazo por espacio o por límite.
+- `readers.log`: los umbrales `bad_responses` (0 %) y `http_req_duration{name:gallery}` deben aparecer en ✓, y los rangos deben responder 206 con un `Content-Range` exacto.
+- `samples.csv`: `app_mem_mib + web_mem_mib` por debajo de 1024 MiB y sin crecer de forma continua; la media de `vm_us + vm_sy` por debajo de 50; `data_avail_mib` no debe bajar de `BODA_DISK_MIN_FREE_BYTES`; `tmp_entries` debe volver a 0.
+- La p95 de la galería debe quedar por debajo de 500 ms.
+- `iostat.log` requiere el paquete `sysstat` en el servidor.
+
+**Reenvío tras la corrección T10:** con la corrección de los reintentos de subidas ya confirmadas, `LOAD_SLOW_RETRY=1` debe devolver 200 en el reenvío a través de Caddy. Si no lo hace, anótalo como fallo.
+
+## Interruptor de subidas y administración desde el móvil
+
+`/admin` es la página de administración para el móvil, en español. Permite:
+
+- Iniciar sesión con la contraseña cuyo hash está en `BODA_ADMIN_PASSWORD_HASH`. El hash se genera con bcrypt (`htpasswd -nBC 12 ""`; de la salida, que tiene la forma `:<hash>`, usa solo el hash) o con argon2id. Los `$` del hash van entre comillas simples en `.env` y se escriben como `$$` en los archivos de Compose.
+- Pausar o reanudar las subidas con un interruptor. Con las subidas en pausa, `PUT` y los derivados responden `503 uploads_paused`; la galería sigue funcionando.
+- Ver el aviso de pausa automática por disco y el espacio libre y reservado, en GB.
+
+Notas de operación:
+
+- La sesión de administrador dura 12 horas. Cerrar sesión no la revoca en el servidor.
+- Tras los fallos de contraseña, el retraso progresivo del login vive en memoria: se reinicia al reiniciar la aplicación.
+- Rotar `BODA_SESSION_KEY` invalida a la vez las sesiones de invitados y de administrador.
+- Prueba el interruptor desde el móvil del administrador en el ensayo general (T9).
+
+## Comportamiento de la subida en el cliente
+
+- Si una subida no recibe progreso durante 60 segundos, el cliente la aborta y la reintenta. No hay plazo total: un vídeo grande puede tardar lo que haga falta mientras siga avanzando.
+- Hasta 5 reintentos, con espera exponencial de 1 s × 2^n y jitter (entre la mitad y el total). La espera nunca baja de `Retry-After` si el servidor lo envía.
+- `503 uploads_paused`: no se reintenta automáticamente. El invitado ve «Las subidas están en pausa» y reintenta a mano.
+- `507 insufficient_storage`: no se reintenta.
+- Galería: las miniaturas nunca muestran el original. Si falta la miniatura, se muestra «Vista previa no disponible». El original solo aparece en el detalle, y solo para JPEG y PNG.
+
 ## Vídeos
 
 Los invitados pueden subir vídeo MP4, M4V y QuickTime MOV (se detectan por la firma `ftyp`, no por la extensión) de hasta `BODA_MAX_VIDEO_BYTES` (1,5 GB). El servidor no transcodifica: guarda y sirve el original con Range (`206`). El navegador del invitado captura un fotograma como portada (miniatura y detalle) y, si no puede decodificar el vídeo (por ejemplo HEVC fuera de Safari), sube solo el original y la galería muestra un marcador con el icono de reproducción. Si el navegador tampoco puede reproducirlo, el detalle ofrece la descarga del original.
@@ -214,9 +293,35 @@ En el cliente, un vídeo se sube solo: espera a que terminen las subidas en curs
 
 - Borra los archivos parciales `tmp/*.part` abandonados. Nunca toca los de una subida en curso: se respeta el bloqueo por identificador que mantiene la subida.
 - Publica en `derived/` las variantes que quedaron en `tmp/*.staged`, solo si su original está confirmado y visible. Las de originales ocultos o aún no confirmados siguen privadas.
+- Borra las variantes `tmp/*.staged` cuyo original nunca se confirmó, una vez pasado `BODA_STAGED_DERIVATIVE_TTL` (24 horas por defecto). Así `tmp/` no crece sin límite con miniaturas huérfanas.
 - Mueve a `quarantine/` los archivos de `originals/` sin registro en SQLite. **Nunca los borra**, y si el nombre ya existe en `quarantine/` añade un sufijo numérico en vez de sobrescribir. Se respeta el original que se está confirmando en ese momento.
 
-Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `skipped_active`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `removed_staged`, `skipped_active`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+
+## Copias de seguridad de SQLite
+
+`boda serve` escribe una copia de `boda.db` con `VACUUM INTO` en `<BODA_DATA_DIR>/backup/` cada `BODA_BACKUP_INTERVAL` (24 horas por defecto). La primera copia se hace al arrancar, en segundo plano, sin retrasar el servicio. Se conservan solo las `BODA_BACKUP_KEEP` (7) más recientes.
+
+- Los archivos se llaman `boda-AAAAMMDDTHHMMSSZ.db` (hora UTC). Se escriben con un nombre temporal y se renombran al final, así que un corte nunca deja una copia truncada que parezca válida.
+- La copia se hace con la aplicación en marcha y no interrumpe las subidas.
+- Si una copia falla, se registra como `backup sqlite database` con el error y el servidor sigue funcionando.
+- Las copias están en el mismo volumen que los originales. No sustituyen a una copia fuera del servidor.
+
+**Restaurar una copia** (operación excepcional; hazla con la aplicación parada):
+
+1. Para la aplicación: `docker compose stop app` (o detén `boda serve` en local). Antes de restaurar, guarda una copia del `boda.db` actual.
+2. Elige la copia más reciente anterior al problema: `ls -l <BODA_DATA_DIR>/backup/`.
+3. Sustituye la base de datos y elimina los archivos WAL. Como la copia la crea la aplicación, el archivo restaurado debe seguir perteneciendo al UID `65532`:
+
+   ```sh
+   cp <BODA_DATA_DIR>/backup/boda-AAAAMMDDTHHMMSSZ.db <BODA_DATA_DIR>/data/boda.db
+   rm -f <BODA_DATA_DIR>/data/boda.db-wal <BODA_DATA_DIR>/data/boda.db-shm
+   chown 65532:65532 <BODA_DATA_DIR>/data/boda.db
+   ```
+
+4. Arranca la aplicación: `docker compose start app`. Comprueba `/api/health` y la galería.
+
+Las subidas posteriores a la copia siguen en `originals/` sin registro en SQLite. La conciliación no las borra: las mueve a `quarantine/`, donde conviene revisarlas a mano antes de la entrega.
 
 ## Entrega a los novios
 

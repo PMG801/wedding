@@ -18,8 +18,6 @@
 #   LOAD_SLOW_BYTES          size of each video; K/M/G suffixes allowed  (default 200M)
 #   LOAD_SLOW_MBPS           per-connection rate limit in Mbit/s         (default 3)
 #   LOAD_SLOW_RETRY          re-PUT each video expecting 200 (1/0)       (default 0)
-#                            KNOWN ISSUE: for bodies above 256 KiB the re-PUT answers 502
-#                            (the app answers 200 without draining the body, Caddy reports the reset)
 #   LOAD_SLOW_TIMEOUT        per-request time cap in seconds             (default 1800)
 #
 # Safety caps (the run refuses to start, or stops early, instead of overrunning):

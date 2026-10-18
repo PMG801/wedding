@@ -2,7 +2,7 @@
 
 ## Persistencia
 
-SQLite embebida, con el driver `modernc.org/sqlite` (Go puro), en `data/boda.db`. Se abre en modo WAL, con `busy_timeout=5000` ms, `synchronous=NORMAL` y claves foráneas activas. Los pragmas que dependen de cada conexión se configuran en el DSN, de modo que se aplican también a las conexiones que `database/sql` cree después de abrir la base.
+SQLite embebida, con el driver `modernc.org/sqlite` (Go puro), en `data/boda.db`. Se abre en modo WAL, con `busy_timeout=5000` ms, `synchronous=FULL`, `journal_size_limit` de 64 MiB y claves foráneas activas. `synchronous=FULL` espera al disco en cada confirmación: una caída de energía no pierde subidas ya confirmadas, a cambio de algo más de latencia en escritura. Los pragmas que dependen de cada conexión se configuran en el DSN, de modo que se aplican también a las conexiones que `database/sql` cree después de abrir la base.
 
 Las migraciones son archivos SQL numerados e incrustados en el binario. `PRAGMA user_version` registra la última migración aplicada. Cada migración y su actualización de versión se ejecutan en una transacción: un fallo revierte ambos cambios. Una migración ya aplicada no vuelve a ejecutarse; si la base tiene una versión superior a la que admite el binario, la apertura falla sin rebajarla.
 

@@ -58,7 +58,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 - **Por qué encaja:** no hay proceso aparte, ocupa unos pocos MB y la carga es de decenas de escrituras por minuto como máximo.
 - **Qué resuelve:** metadatos, estados, cursores de la galería, cola de tareas, configuración que se puede cambiar en marcha (el interruptor) y credenciales. La copia en caliente se hace con `VACUUM INTO`.
 - **Por qué este driver:** está escrito en Go puro. Así se mantiene `CGO_ENABLED=0`, la compilación cruzada es trivial y la imagen final puede ser mínima. Es algo más lento que el driver en C, pero con esta carga da igual.
-- **Coste o complejidad:** las migraciones se hacen sin librería, con archivos SQL embebidos numerados y el campo `PRAGMA user_version`. Hay que configurar el modo WAL, `busy_timeout`, `synchronous=NORMAL` y `foreign_keys` al abrir la base de datos.
+- **Coste o complejidad:** las migraciones se hacen sin librería, con archivos SQL embebidos numerados y el campo `PRAGMA user_version`. Hay que configurar el modo WAL, `busy_timeout`, `synchronous=FULL`, `journal_size_limit` (64 MiB) y `foreign_keys` al abrir la base de datos. Se eligió `FULL` frente a `NORMAL` porque con `NORMAL` una caída de energía podía perder confirmaciones que la aplicación ya había devuelto como 201.
 - **Descartado: PostgreSQL**, porque es otro servicio con su propia copia de seguridad y sus actualizaciones sin ninguna ganancia. **`mattn/go-sqlite3`** tampoco: exige compilar código C, lo que complica `buildx` y la compilación cruzada. **Un ORM** (GORM o similar): con 3 o 4 tablas, SQL directo es más claro.
 
 ### 1.4 Procesamiento de miniaturas
