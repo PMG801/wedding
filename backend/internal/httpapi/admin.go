@@ -58,6 +58,7 @@ func registerAdminRoutes(mux *http.ServeMux, sessionKey []byte, options handlerO
 	}
 
 	mux.Handle("POST /api/admin/login", noStore(adminLoginHandler(sessionKey, passwordHash, throttle)))
+	registerModerationRoutes(mux, sessionKey, options.moderator)
 	mux.Handle("POST /api/admin/logout", noStore(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, auth.ExpiredAdminCookie())
 		w.WriteHeader(http.StatusNoContent)

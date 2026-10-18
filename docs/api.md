@@ -186,6 +186,7 @@ Exige la sesión de administrador. Oculta o vuelve a mostrar un medio confirmado
 | `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
 | `404 Not Found` | No existe un medio confirmado con ese identificador (`{"error":"media_not_found"}`). |
 | `500 Internal Server Error` | Fallo al mover archivos o al actualizar SQLite; lo ya movido se deshace (`{"error":"moderation_failed"}`). |
+| `503 Service Unavailable` | La moderación no está disponible en este proceso (`{"error":"moderation_unavailable"}`). |
 
 ### `GET /api/admin/media?visibility=hidden&cursor=<opaco>&limit=50` — medios ocultos
 

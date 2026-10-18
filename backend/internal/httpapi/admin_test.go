@@ -59,7 +59,7 @@ func openAdminTestDatabase(t *testing.T) *sql.DB {
 	return database
 }
 
-func newAdminFixture(t *testing.T, photos photoUploader, gallery mediaLister) *adminFixture {
+func newAdminFixture(t *testing.T, photos photoUploader, gallery mediaLister, extra ...Option) *adminFixture {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
 	if err != nil {
@@ -72,8 +72,8 @@ func newAdminFixture(t *testing.T, photos photoUploader, gallery mediaLister) *a
 	disk := &fakeDisk{usage: upload.DiskUsage{FreeBytes: 10 << 30, ReservedBytes: 1 << 30, MinFreeBytes: 5 << 30}}
 	clock := &recordingClock{now: time.Now()}
 	throttle := auth.NewLoginThrottle(auth.ThrottleOptions{Now: clock.Now, Sleep: clock.Sleep})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 2, time.Second, 1024, gallery,
-		WithAdmin(string(hash), store, disk), WithLoginThrottle(throttle))
+	options := append([]Option{WithAdmin(string(hash), store, disk), WithLoginThrottle(throttle)}, extra...)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 2, time.Second, 1024, gallery, options...)
 	return &adminFixture{handler: handler, settings: store, disk: disk, clock: clock}
 }
 

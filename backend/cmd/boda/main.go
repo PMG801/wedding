@@ -90,7 +90,8 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
-		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos)), nil
+		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
+		httpapi.WithModeration(photos)), nil
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk

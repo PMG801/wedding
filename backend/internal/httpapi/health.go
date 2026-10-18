@@ -15,6 +15,7 @@ type handlerOptions struct {
 	maxDerivativeBytes int64
 	admin              *adminOptions
 	throttle           *auth.LoginThrottle
+	moderator          mediaModerator
 }
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
