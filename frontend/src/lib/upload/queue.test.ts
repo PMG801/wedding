@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { UploadRequest, UploadResponse, UploadTransport } from '../api/media'
 import type { Derivatives } from '../media/derivatives'
+import { uploadErrorMessage } from '../i18n/es'
 import { UploadQueue, type UploadItem } from './queue'
 
 const ok201: UploadResponse = { status: 201, retryAfterSeconds: null, errorCode: null }
@@ -98,10 +99,11 @@ describe('UploadQueue', () => {
       if (next instanceof Error) throw next
       return next
     })
-    const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+    const { queue, sleep } = setup({ transport, makeDerivatives: async () => null, random: () => 1 })
     queue.add([photo('a.jpg')])
     await queue.idle()
 
+    // random() = 1 is the top of the equal-jitter band: the plain exponential schedule.
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1000, 5000, 4000])
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
   })
@@ -242,5 +244,85 @@ describe('UploadQueue', () => {
     await release()
     await queue.idle()
     expect(log).toEqual(['start p1.jpg while []', 'start p2.jpg while [p1.jpg]', 'start v.mp4 while []', 'start p3.jpg while []'])
+  })
+
+  describe('backoff jitter', () => {
+    /** Runs one photo that fails once with the given response, and returns the single delay used. */
+    async function firstDelay(random: () => number, response: UploadResponse): Promise<number> {
+      let calls = 0
+      const transport: UploadTransport = async () => (calls++ === 0 ? response : ok201)
+      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null, random })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+      expect(sleep).toHaveBeenCalledTimes(1)
+      return sleep.mock.calls[0][0]
+    }
+    const transient: UploadResponse = { status: 500, retryAfterSeconds: null, errorCode: null }
+
+    it('spreads the first retry between half and all of the 1 s base delay', async () => {
+      const samples = [0, 0.25, 0.5, 0.75, 0.999].map((r) => firstDelay(() => r, transient))
+      const delays = await Promise.all(samples)
+      for (const delay of delays) {
+        expect(delay).toBeGreaterThanOrEqual(500)
+        expect(delay).toBeLessThanOrEqual(1000)
+      }
+      expect(new Set(delays).size).toBe(delays.length)
+    })
+
+    it('uses the exact equal-jitter formula: half the backoff plus a random half', async () => {
+      expect(await firstDelay(() => 0, transient)).toBe(500)
+      expect(await firstDelay(() => 0.5, transient)).toBe(750)
+    })
+
+    it('never goes below Retry-After, which stays a floor', async () => {
+      expect(await firstDelay(() => 0, { status: 503, retryAfterSeconds: 5, errorCode: null })).toBe(5000)
+      expect(await firstDelay(() => 0, { status: 503, retryAfterSeconds: 0, errorCode: null })).toBe(500)
+      expect(await firstDelay(() => 0.5, { status: 429, retryAfterSeconds: 1, errorCode: null })).toBe(1000)
+    })
+  })
+
+  describe('uploads_paused', () => {
+    const pausedResponse: UploadResponse = { status: 503, retryAfterSeconds: 30, errorCode: 'uploads_paused' }
+
+    it('does not retry automatically while uploads are paused', async () => {
+      const transport: UploadTransport = vi.fn(async () => pausedResponse)
+      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+
+      expect(transport).toHaveBeenCalledTimes(1)
+      expect(sleep).not.toHaveBeenCalled()
+      expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'uploads_paused' }))
+    })
+
+    it('stops the photo at the first paused derivative instead of sending the original', async () => {
+      const transport: UploadTransport = vi.fn(async () => pausedResponse)
+      const { queue } = setup({ transport })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+
+      expect(transport).toHaveBeenCalledTimes(1)
+      expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'uploads_paused' }))
+    })
+
+    it('lets the guest retry by hand once uploads resume', async () => {
+      let paused = true
+      const transport: UploadTransport = vi.fn(async () => (paused ? pausedResponse : ok201))
+      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+      expect(queue.items[0].status).toBe('failed')
+
+      paused = false
+      queue.retry(queue.items[0].id)
+      await queue.idle()
+      expect(sleep).not.toHaveBeenCalled()
+      expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
+    })
+
+    it('shows the Spanish pause message', () => {
+      expect(uploadErrorMessage('uploads_paused')).toBe('Las subidas están en pausa')
+      expect(uploadErrorMessage('server')).toContain('ocupado')
+    })
   })
 })

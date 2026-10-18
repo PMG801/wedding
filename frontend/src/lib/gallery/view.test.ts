@@ -16,8 +16,13 @@ describe('image selection', () => {
     const withDerivatives = { ...base, thumbUrl: '/m/d/t.jpg', detailUrl: '/m/d/d.jpg' }
     expect(gridImage(withDerivatives)).toBe('/m/d/t.jpg')
     expect(detailImage(withDerivatives)).toBe('/m/d/d.jpg')
-    expect(gridImage(base)).toBe(base.originalUrl)
     expect(detailImage({ ...base, mime: 'image/png' })).toBe(base.originalUrl)
+  })
+
+  it('never shows the original in a grid tile: a missing thumbnail is a placeholder', () => {
+    expect(gridImage(base)).toBeNull()
+    expect(gridImage({ ...base, mime: 'image/png' })).toBeNull()
+    expect(gridImage({ ...base, detailUrl: '/m/d/d.jpg' })).toBeNull()
   })
 
   it('treats videos as playable media and never paints the video file in an image element', () => {

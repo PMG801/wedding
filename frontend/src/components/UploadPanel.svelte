@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { copy, uploadErrorMessages, uploadSummaryLabels } from '../lib/i18n/es'
+  import { copy, uploadErrorMessage, uploadSummaryLabels } from '../lib/i18n/es'
   import type { UploadItem } from '../lib/upload/queue'
   import { summarizeUploads } from '../lib/upload/summary'
 
@@ -55,7 +55,7 @@
         {#if summary.retryableIds.length > 0}
           <p class="summary-error">{uploadSummaryLabels.failed(summary.retryableIds.length)}</p>
           {#if summary.failureCode !== null}
-            <p class="summary-note">{uploadErrorMessages[summary.failureCode]}</p>
+            <p class="summary-note">{uploadErrorMessage(summary.failureCode)}</p>
           {/if}
         {/if}
         {#if summary.rejected > 0}

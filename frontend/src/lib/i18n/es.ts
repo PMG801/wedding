@@ -40,7 +40,10 @@ export const copy = {
   }
 } as const
 
-export const uploadErrorMessages: Record<UploadErrorCode, string> = {
+/** Shown when the admin has paused uploads (503 uploads_paused). Retry is manual. */
+export const uploadPausedMessage = 'Las subidas están en pausa'
+
+export const uploadErrorMessages: Record<Exclude<UploadErrorCode, 'uploads_paused'>, string> = {
   unsupported_type: 'Solo se admiten fotos JPEG, PNG o HEIC y vídeos MP4 o MOV.',
   too_large: 'El archivo supera el tamaño máximo (50 MB en fotos y 1,5 GB en vídeos).',
   session_expired: 'Tu acceso ha caducado. Vuelve a escanear el código QR y reintenta.',
@@ -48,6 +51,10 @@ export const uploadErrorMessages: Record<UploadErrorCode, string> = {
   rejected: 'El servidor no ha aceptado esta foto.',
   network: 'No hay conexión. Comprueba tu cobertura y reintenta.',
   server: 'El servidor está ocupado. Reintenta en un momento.'
+}
+
+export function uploadErrorMessage(code: UploadErrorCode): string {
+  return code === 'uploads_paused' ? uploadPausedMessage : uploadErrorMessages[code]
 }
 
 export const uploadSummaryLabels = {

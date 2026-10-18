@@ -1,10 +1,59 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  createXhrTransport,
   derivativeUploadRequest,
   fetchGalleryPage,
   GuestSessionRequiredError,
-  originalUploadRequest
+  NetworkError,
+  originalUploadRequest,
+  type UploadRequest
 } from './media'
+
+/** Minimal XMLHttpRequest double: the test drives progress and completion by hand. */
+class FakeXHR {
+  static instances: FakeXHR[] = []
+  upload: { onprogress: ((event: { loaded: number }) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  status = 0
+  responseText = ''
+  aborted = false
+
+  constructor() {
+    FakeXHR.instances.push(this)
+  }
+  open(): void {}
+  setRequestHeader(): void {}
+  getResponseHeader(): string | null {
+    return null
+  }
+  send(): void {}
+  abort(): void {
+    this.aborted = true
+  }
+  progress(loaded: number): void {
+    this.upload.onprogress?.({ loaded })
+  }
+}
+
+afterEach(() => {
+  FakeXHR.instances = []
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
+
+function startUpload(stallTimeoutMs?: number) {
+  vi.useFakeTimers()
+  vi.stubGlobal('XMLHttpRequest', FakeXHR)
+  const request: UploadRequest = { method: 'PUT', url: `/api/media/${id}`, body: new Blob(['x']), contentType: 'image/jpeg' }
+  const transport = createXhrTransport(stallTimeoutMs === undefined ? {} : { stallTimeoutMs })
+  const outcome = { settled: false, error: null as unknown, response: null as unknown }
+  transport(request, () => {}).then(
+    (response) => Object.assign(outcome, { settled: true, response }),
+    (error: unknown) => Object.assign(outcome, { settled: true, error })
+  )
+  return { xhr: FakeXHR.instances[0], outcome }
+}
 
 const id = '123e4567-e89b-42d3-a456-426614174000'
 
@@ -32,6 +81,51 @@ describe('upload requests', () => {
       body: blob,
       contentType: 'image/jpeg'
     })
+  })
+})
+
+describe('upload stall watchdog', () => {
+  it('aborts with NetworkError once no progress event arrives for the stall window', async () => {
+    const { xhr, outcome } = startUpload(1000)
+    vi.advanceTimersByTime(999)
+    expect(outcome.settled).toBe(false)
+    vi.advanceTimersByTime(1)
+    await vi.waitFor(() => expect(outcome.settled).toBe(true))
+    expect(xhr.aborted).toBe(true)
+    expect(outcome.error).toBeInstanceOf(NetworkError)
+  })
+
+  it('does not abort while progress keeps arriving, however long the total upload takes', async () => {
+    const { xhr, outcome } = startUpload(1000)
+    for (let sent = 1; sent <= 10; sent++) {
+      vi.advanceTimersByTime(900)
+      xhr.progress(sent * 100)
+    }
+    vi.advanceTimersByTime(900)
+    expect(xhr.aborted).toBe(false)
+    expect(outcome.settled).toBe(false)
+    vi.advanceTimersByTime(100)
+    await vi.waitFor(() => expect(outcome.settled).toBe(true))
+    expect(outcome.error).toBeInstanceOf(NetworkError)
+  })
+
+  it('defaults to a 60 second stall window', async () => {
+    const { xhr, outcome } = startUpload()
+    vi.advanceTimersByTime(59_999)
+    expect(xhr.aborted).toBe(false)
+    vi.advanceTimersByTime(1)
+    await vi.waitFor(() => expect(outcome.settled).toBe(true))
+    expect(xhr.aborted).toBe(true)
+  })
+
+  it('stands down once the server responds', async () => {
+    const { xhr, outcome } = startUpload(1000)
+    xhr.status = 201
+    xhr.onload?.()
+    await vi.waitFor(() => expect(outcome.settled).toBe(true))
+    vi.advanceTimersByTime(60_000)
+    expect(xhr.aborted).toBe(false)
+    expect(outcome.response).toEqual({ status: 201, retryAfterSeconds: null, errorCode: null })
   })
 })
 

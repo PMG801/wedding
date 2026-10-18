@@ -5,8 +5,9 @@ import { isVideoMime } from '../media/kind'
 const BROWSER_DISPLAYABLE = new Set(['image/jpeg', 'image/png'])
 const MEDIA_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
+/** Grid tiles only ever show thumbnails; a missing one is a placeholder, never the original. */
 export function gridImage(item: GalleryItem): string | null {
-  return item.thumbUrl ?? (BROWSER_DISPLAYABLE.has(item.mime) ? item.originalUrl : null)
+  return item.thumbUrl
 }
 
 export function detailImage(item: GalleryItem): string | null {

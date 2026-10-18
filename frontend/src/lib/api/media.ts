@@ -52,25 +52,57 @@ export function derivativeUploadRequest(id: string, variant: DerivativeVariant, 
   return { method: 'POST', url: `/api/media/${id}/derived?variant=${variant}`, body: jpeg, contentType: 'image/jpeg' }
 }
 
+/**
+ * Idle window before an upload with no progress event is aborted. The server
+ * closes idle uploads after 90 s, so the client gives up first and retries.
+ */
+export const UPLOAD_STALL_TIMEOUT_MS = 60_000
+
+export interface XhrTransportOptions {
+  /** Aborts the request when no upload progress arrives for this long. There is no total deadline. */
+  stallTimeoutMs?: number
+}
+
 /** Uploads with XMLHttpRequest because fetch cannot report upload progress. */
-export const xhrTransport: UploadTransport = (request, onProgress) =>
-  new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open(request.method, request.url)
-    xhr.setRequestHeader('Content-Type', request.contentType)
-    xhr.upload.onprogress = (event) => onProgress(event.loaded)
-    xhr.onload = () => {
-      const retryAfter = Number.parseInt(xhr.getResponseHeader('Retry-After') ?? '', 10)
-      resolve({
-        status: xhr.status,
-        retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : null,
-        errorCode: parseErrorCode(xhr.responseText)
-      })
-    }
-    xhr.onerror = () => reject(new NetworkError())
-    xhr.ontimeout = () => reject(new NetworkError())
-    xhr.send(request.body)
-  })
+export function createXhrTransport({ stallTimeoutMs = UPLOAD_STALL_TIMEOUT_MS }: XhrTransportOptions = {}): UploadTransport {
+  return (request, onProgress) =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      let watchdog: ReturnType<typeof setTimeout> | undefined
+      const disarm = () => clearTimeout(watchdog)
+      const arm = () => {
+        disarm()
+        watchdog = setTimeout(() => {
+          xhr.abort()
+          reject(new NetworkError())
+        }, stallTimeoutMs)
+      }
+
+      xhr.open(request.method, request.url)
+      xhr.setRequestHeader('Content-Type', request.contentType)
+      xhr.upload.onprogress = (event) => {
+        arm()
+        onProgress(event.loaded)
+      }
+      xhr.onload = () => {
+        disarm()
+        const retryAfter = Number.parseInt(xhr.getResponseHeader('Retry-After') ?? '', 10)
+        resolve({
+          status: xhr.status,
+          retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : null,
+          errorCode: parseErrorCode(xhr.responseText)
+        })
+      }
+      xhr.onerror = () => {
+        disarm()
+        reject(new NetworkError())
+      }
+      arm()
+      xhr.send(request.body)
+    })
+}
+
+export const xhrTransport: UploadTransport = createXhrTransport()
 
 function parseErrorCode(text: string): string | null {
   try {

@@ -15,6 +15,7 @@ export type UploadErrorCode =
   | 'too_large'
   | 'session_expired'
   | 'storage_full'
+  | 'uploads_paused'
   | 'rejected'
   | 'network'
   | 'server'
@@ -41,6 +42,8 @@ export interface UploadQueueOptions {
   concurrency?: number
   maxRetries?: number
   baseDelayMs?: number
+  /** Returns a number in [0, 1) for backoff jitter; injected so tests are deterministic. */
+  random?: () => number
   /** Largest photo in bytes. */
   maxFileBytes?: number
   /** Largest video in bytes. */
@@ -78,6 +81,7 @@ export class UploadQueue {
       concurrency: 2,
       maxRetries: 5,
       baseDelayMs: 1000,
+      random: Math.random,
       maxFileBytes: 50 * 1024 * 1024,
       maxVideoBytes: 1536 * 1024 * 1024,
       ...options
@@ -185,7 +189,7 @@ export class UploadQueue {
           // A missing derivative only costs the gallery preview; the original
           // still goes up. Session and disk failures affect every request.
           const code = error instanceof UploadFailure ? error.code : 'network'
-          if (!step.optional || code === 'session_expired' || code === 'storage_full') throw error
+          if (!step.optional || code === 'session_expired' || code === 'storage_full' || code === 'uploads_paused') throw error
         }
         doneBytes += step.request.body.size
       }
@@ -204,14 +208,18 @@ export class UploadQueue {
         // Network failure: retryable like a transient server error.
       }
       if (response !== null && (response.status === 200 || response.status === 201)) return
+      // An admin pause is deliberate: retrying would only hammer a closed switch.
+      // The guest retries by hand from the summary.
+      if (response !== null && response.status === 503 && response.errorCode === 'uploads_paused') {
+        throw new UploadFailure('uploads_paused')
+      }
       if (response !== null && !RETRYABLE_STATUSES.has(response.status)) {
         throw new UploadFailure(permanentFailure(response.status))
       }
       if (attempt >= this.#options.maxRetries) {
         throw new UploadFailure(response === null ? 'network' : 'server')
       }
-      const backoff = this.#options.baseDelayMs * 2 ** attempt
-      const delay = Math.max(backoff, (response?.retryAfterSeconds ?? 0) * 1000)
+      const delay = Math.max(equalJitter(this.#options.baseDelayMs * 2 ** attempt, this.#options.random), (response?.retryAfterSeconds ?? 0) * 1000)
       this.#update(item, { status: 'retrying' })
       await this.#options.sleep(delay)
       this.#update(item, { status: 'uploading' })
@@ -226,6 +234,11 @@ export class UploadQueue {
   #emit(): void {
     this.#options.onChange?.(this.items)
   }
+}
+
+/** Equal jitter: half the backoff is kept, the other half is random, so retries spread out without going to zero. */
+export function equalJitter(backoffMs: number, random: () => number): number {
+  return backoffMs / 2 + random() * (backoffMs / 2)
 }
 
 function permanentFailure(status: number): UploadErrorCode {
