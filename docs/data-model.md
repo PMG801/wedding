@@ -48,7 +48,7 @@ Reglas de `uploads_enabled`:
 - El orden de confirmación es: escritura forzada, renombrado y confirmación en la base de datos.
 - **No se guardan estados de progreso de subida en la base de datos.** No debe quedar ningún registro `uploading`.
 - El renombrado entre ubicaciones requiere un único sistema de archivos; separar `tmp/`, `originals/` y `hidden/` en montajes distintos causa `EXDEV`.
-- Al ocultar, el archivo se mueve a `hidden/` y se actualiza su estado en SQLite. El directorio `hidden/` no se sirve.
+- Al ocultar, el archivo se mueve a `hidden/` y se actualiza su estado en SQLite. El directorio `hidden/` no se sirve. Sus derivados vuelven a `tmp/` como variantes privadas (`*.staged`), así `hidden/` solo contiene originales para la entrega. Nunca se borra un medio: ocultar es reversible.
 - El índice puede reconstruirse desde el disco con `boda reindex`. Los archivos de `originals/` sin registro van a `quarantine/`, nunca se borran.
 
 La definición resume la máquina como: **el disco decide si un archivo existe; SQLite decide si es visible**. Si se corrompe la base de datos, se pierden estados y visibilidad, pero ningún archivo.

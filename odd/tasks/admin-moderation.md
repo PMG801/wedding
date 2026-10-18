@@ -17,8 +17,8 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 - **D4 — Hidden derivatives (technical).** They go back to `tmp/*.staged`, the private state reconciliation already keeps for hidden originals (`docs/runbook.md`), so `hidden/` stays originals-only for delivery (ADR-0010). The admin sees hidden previews through an app route behind the admin session, never through Caddy.
 
 ## Tasks
-- [ ] **T0 [S2, S6, D1-D4] — Record decisions and fix the API contract in `docs/api.md`** · inline · branch `feat/admin-moderation-storage` · commit: pending
-- [ ] **T1 [S1, S3] — Storage move and store visibility transition, crash-safe** · inline, test-first · risk: item 1 (moves stored data) → own commit · commit: pending
+- [x] **T0 [S2, S6, D1-D4] — Record decisions and fix the API contract in `docs/api.md`** · inline · branch `feat/admin-moderation-storage` · evidence: `docs/api.md` PATCH + hidden listing contract, `docs/data-model.md` hidden derivatives · commit: `6978b01`
+- [x] **T1 [S1, S3] — Storage move and store visibility transition, crash-safe** · inline, test-first · risk: item 1 (moves stored data) → own commit · evidence: RED `store.SetVisibility undefined`; GREEN 5 `TestSetVisibility*` (hide/show, idempotent, 404/invalid without changes, rollback on SQLite failure, stays hidden when the move fails); `go test ./... && go vet ./...` ok; startup now also requires `hidden/` on the same filesystem (compose uses one mount) · commit: see branch log
 - [ ] **T2 [S2] — `PATCH /api/admin/media/{id}`** · inline, test-first · branch `feat/admin-moderation-api` · commit: pending
 - [ ] **T3 [S2, S3] — Admin hidden listing, admin preview route, reconciliation with `hidden/`** · inline, test-first · commit: pending
 - [ ] **T4 [S4, S6] — Admin UI** · inline · branch `feat/admin-moderation-ui` · commit: pending

@@ -96,6 +96,14 @@ func Initialize(root string) (Paths, error) {
 	if err := sameFilesystemIDs(tmpDevice, derivedDevice); err != nil {
 		return Paths{}, fmt.Errorf("tmp and derived directories must be on the same filesystem: %w", err)
 	}
+	// Hiding links originals into hidden/ and derivatives back into tmp/.
+	hiddenDevice, err := filesystemDevice(paths.Hidden)
+	if err != nil {
+		return Paths{}, fmt.Errorf("cannot identify filesystem for hidden directory: %w", err)
+	}
+	if err := sameFilesystemIDs(tmpDevice, hiddenDevice); err != nil {
+		return Paths{}, fmt.Errorf("tmp and hidden directories must be on the same filesystem: %w", err)
+	}
 	return paths, nil
 }
 
