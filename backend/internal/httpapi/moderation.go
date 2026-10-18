@@ -105,9 +105,36 @@ func hiddenListingHandler(source hiddenMediaSource) http.Handler {
 		case err != nil:
 			writeUploadError(w, http.StatusInternalServerError, "gallery_failed")
 		default:
-			writeJSON(w, http.StatusOK, page)
+			writeJSON(w, http.StatusOK, adminHiddenPage(page))
 		}
 	})
+}
+
+// adminHiddenItem is the administrator view of a hidden medium. Likes belong to
+// the guest gallery, so this listing keeps its original shape.
+type adminHiddenItem struct {
+	ID          string  `json:"id"`
+	MIME        string  `json:"mime"`
+	ConfirmedAt int64   `json:"confirmed_at"`
+	OriginalURL *string `json:"original_url"`
+	ThumbURL    *string `json:"thumb_url"`
+	DetailURL   *string `json:"detail_url"`
+}
+
+type adminHiddenPageBody struct {
+	Items      []adminHiddenItem `json:"items"`
+	NextCursor *string           `json:"next_cursor"`
+}
+
+func adminHiddenPage(page media.Page) adminHiddenPageBody {
+	items := make([]adminHiddenItem, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, adminHiddenItem{
+			ID: item.ID, MIME: item.MIME, ConfirmedAt: item.ConfirmedAt,
+			OriginalURL: item.OriginalURL, ThumbURL: item.ThumbURL, DetailURL: item.DetailURL,
+		})
+	}
+	return adminHiddenPageBody{Items: items, NextCursor: page.NextCursor}
 }
 
 func hiddenPreviewHandler(source hiddenMediaSource) http.Handler {

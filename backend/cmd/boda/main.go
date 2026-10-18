@@ -87,12 +87,17 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	if err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
+	likes, err := media.NewLikes(database)
+	if err != nil {
+		return nil, fmt.Errorf("initialize likes: %w", err)
+	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
 		httpapi.WithModeration(photos),
-		httpapi.WithHiddenMedia(gallery)), nil
+		httpapi.WithHiddenMedia(gallery),
+		httpapi.WithLikes(likes)), nil
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk

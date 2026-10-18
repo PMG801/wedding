@@ -18,7 +18,7 @@ var ErrPreviewNotFound = errors.New("hidden preview not found")
 // same cursor as List. Hidden files are never served by the proxy, so the
 // original URL is nil and previews point at the admin preview route.
 func (g *Gallery) ListHidden(ctx context.Context, cursor string, limit int) (Page, error) {
-	return g.list(ctx, "hidden", cursor, limit, func(item *Item, _ string) error {
+	return g.list(ctx, "hidden", "", cursor, limit, func(item *Item, _ string) error {
 		var err error
 		if item.ThumbURL, err = g.previewURL(item.ID, "t"); err != nil {
 			return err
