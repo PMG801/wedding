@@ -25,8 +25,8 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("user_version = %d; want 2", version)
+	if version != 3 {
+		t.Fatalf("user_version = %d; want 3", version)
 	}
 
 	var journalMode string
@@ -37,7 +37,7 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		t.Fatalf("journal_mode = %q; want wal", journalMode)
 	}
 
-	wantTables := []string{"media", "media_likes", "settings"}
+	wantTables := []string{"media", "media_likes", "pinned_items", "settings"}
 	rows, err := database.QueryContext(ctx, "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
@@ -249,8 +249,8 @@ func TestMigration0002AddsLikesToExistingVersionOneDatabase(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("user_version after upgrade = %d; want 2", version)
+	if version != 3 {
+		t.Fatalf("user_version after upgrade = %d; want 3", version)
 	}
 	var likeCount int
 	if err := database.QueryRowContext(ctx, "SELECT like_count FROM media WHERE id = ?", mediaID).Scan(&likeCount); err != nil {
@@ -275,6 +275,96 @@ func TestMigration0002AddsLikesToExistingVersionOneDatabase(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := database.ExecContext(ctx, test.sql); err == nil {
 				t.Error("statement unexpectedly succeeded")
+			}
+		})
+	}
+}
+
+// TestMigration0003AddsPinnedItemsToVersionTwoDatabase upgrades a database at
+// schema version 2 that already holds media and likes; those rows must survive,
+// and the pinned_items constraints must hold (ADR-0013, data-model 0003).
+func TestMigration0003AddsPinnedItemsToVersionTwoDatabase(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v2.db")
+	const mediaID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const guestID = "0123456789abcdef0123456789abcdef"
+
+	legacyFiles := fstest.MapFS{}
+	for _, name := range []string{"0001_initial.sql", "0002_media_likes.sql"} {
+		contents, err := fs.ReadFile(migrationFiles, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyFiles[name] = &fstest.MapFile{Data: contents}
+	}
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMigrations(ctx, legacy, legacyFiles); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, 'legacy.jpg', 'image/jpeg', 3, 1700000000000)", mediaID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, "INSERT INTO media_likes (media_id, guest_id, created_at) VALUES (?, ?, 1700000000001)", mediaID, guestID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.ExecContext(ctx, "UPDATE media SET like_count = 1 WHERE id = ?", mediaID); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() upgrade error = %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 3 {
+		t.Fatalf("user_version after upgrade = %d; want 3", version)
+	}
+	var likeCount, likeRows, mediaRows int
+	if err := database.QueryRowContext(ctx, "SELECT like_count FROM media WHERE id = ?", mediaID).Scan(&likeCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT count(*) FROM media_likes WHERE media_id = ?", mediaID).Scan(&likeRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT count(*) FROM media").Scan(&mediaRows); err != nil {
+		t.Fatal(err)
+	}
+	if likeCount != 1 || likeRows != 1 || mediaRows != 1 {
+		t.Fatalf("after upgrade media=%d likes=%d like_count=%d; want 1, 1, 1", mediaRows, likeRows, likeCount)
+	}
+
+	overLong := strings.Repeat("ñ", 121)
+	if _, err := database.ExecContext(ctx, "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p1', ?, '', NULL, 0, 1, 1)", strings.Repeat("ñ", 120)); err != nil {
+		t.Fatalf("insert 120-character title: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p2', ?, '', NULL, 1, 1, 1)", overLong); err == nil {
+		t.Error("121-character title unexpectedly accepted")
+	}
+	for _, test := range []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{name: "empty title", sql: "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p3', '', '', NULL, 1, 1, 1)"},
+		{name: "over-long body", sql: "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p4', 'ok', ?, NULL, 1, 1, 1)", args: []any{strings.Repeat("x", 2001)}},
+		{name: "negative position", sql: "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p5', 'ok', '', NULL, -1, 1, 1)"},
+		{name: "duplicate position", sql: "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p6', 'ok', '', NULL, 0, 1, 1)"},
+		{name: "unknown media", sql: "INSERT INTO pinned_items (id, title, body, media_id, position, created_at, updated_at) VALUES ('p7', 'ok', '', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 1, 1, 1)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := database.ExecContext(ctx, test.sql, test.args...); err == nil {
+				t.Error("insert unexpectedly succeeded")
 			}
 		})
 	}
