@@ -10,7 +10,7 @@ cat >"$smoke_env_file" <<'EOF'
 BODA_ADDR=:8080
 BODA_DATA_DIR=/srv/evento
 BODA_EVENT_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-BODA_ADMIN_PASSWORD_HASH='$argon2id$v=19$m=1,t=1,p=1$YQ$YQ'
+BODA_ADMIN_PASSWORD_HASH='$argon2id$v=19$m=8,t=1,p=1$c21va2VzYWx0$Ko3zYasvKeqcgGGZmu4jyg'
 BODA_SESSION_KEY=0123456789abcdef0123456789abcdef
 BODA_DISK_MIN_FREE_BYTES=1
 EOF
@@ -23,6 +23,7 @@ smoke_photo_file="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-photo.XXXXXX")"
 smoke_guest_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-guest.XXXXXX")"
 smoke_media_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-headers.XXXXXX")"
 smoke_media_body="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-body.XXXXXX")"
+smoke_admin_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-admin.XXXXXX")"
 
 cleanup() {
   local status=$?
@@ -39,7 +40,7 @@ cleanup() {
       status=$cleanup_status
     fi
   }
-  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers" "$smoke_media_headers" "$smoke_media_body"
+  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers" "$smoke_media_headers" "$smoke_media_body" "$smoke_admin_headers"
   exit "$status"
 }
 trap cleanup EXIT
@@ -224,3 +225,41 @@ if [[ "$video_range" != *' 206'* || "${video_range,,}" != *'content-range: bytes
   exit 1
 fi
 echo 'Video upload, playback type and Range passed.'
+
+# Moderation: the smoke-only admin password matches BODA_ADMIN_PASSWORD_HASH above.
+admin_status="$(curl -sS -D "$smoke_admin_headers" -o /dev/null -w '%{http_code}' \
+  -X POST -H 'Content-Type: application/json' --data '{"password":"smoke-admin"}' "$smoke_base_url/api/admin/login")"
+admin_cookie="$(awk 'tolower($1) == "set-cookie:" && $2 ~ /^admin_session=/ { sub(/;.*/, "", $2); print $2; exit }' "$smoke_admin_headers")"
+if [[ "$admin_status" != 204 || -z "$admin_cookie" ]]; then
+  echo "Admin login returned HTTP $admin_status without an admin cookie; want 204 and a cookie." >&2
+  exit 1
+fi
+moderate() {
+  curl -sS -o /dev/null -w '%{http_code}' -X PATCH -H "Cookie: $admin_cookie" -H 'Content-Type: application/json' \
+    --data "{\"visibility\":\"$1\"}" "$smoke_base_url/api/admin/media/$smoke_photo_id"
+}
+media_status() {
+  curl -sS -o /dev/null -w '%{http_code}' -H "Cookie: $guest_cookie" "$smoke_base_url$original_url"
+}
+if [[ "$(moderate hidden)" != 200 || "$(media_status)" != 404 ]]; then
+  echo 'Hiding the photo did not make its original URL return 404.' >&2
+  exit 1
+fi
+if [[ "$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media")" == *"\"id\":\"$smoke_photo_id\""* ]]; then
+  echo 'The gallery still lists the hidden photo.' >&2
+  exit 1
+fi
+if [[ "$(curl -fsS -H "Cookie: $admin_cookie" "$smoke_base_url/api/admin/media?visibility=hidden")" != *"\"id\":\"$smoke_photo_id\""* ]]; then
+  echo 'The admin hidden listing does not include the hidden photo.' >&2
+  exit 1
+fi
+delete_status="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H "Cookie: $admin_cookie" "$smoke_base_url/api/admin/media/$smoke_photo_id")"
+if [[ "$delete_status" != 405 ]]; then
+  echo "DELETE on media returned HTTP $delete_status; want 405 (media is never deleted)." >&2
+  exit 1
+fi
+if [[ "$(moderate visible)" != 200 || "$(media_status)" != 200 ]]; then
+  echo 'Showing the photo again did not restore its original URL.' >&2
+  exit 1
+fi
+echo 'Admin moderation hide, hidden listing, no delete and show passed.'

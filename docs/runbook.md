@@ -265,6 +265,13 @@ Estas pruebas reproducen en el servidor de QA las condiciones del evento: 25 sub
 - Iniciar sesión con la contraseña cuyo hash está en `BODA_ADMIN_PASSWORD_HASH`. El hash se genera con bcrypt (`htpasswd -nBC 12 ""`; de la salida, que tiene la forma `:<hash>`, usa solo el hash) o con argon2id. Los `$` del hash van entre comillas simples en `.env` y se escriben como `$$` en los archivos de Compose.
 - Pausar o reanudar las subidas con un interruptor. Con las subidas en pausa, `PUT` y los derivados responden `503 uploads_paused`; la galería sigue funcionando.
 - Ver el aviso de pausa automática por disco y el espacio libre y reservado, en GB.
+- Ver la lista **Ocultas** con sus miniaturas y volver a mostrar cualquiera con **Mostrar**.
+
+### Ocultar contenido
+
+Con la sesión de administrador abierta en el mismo navegador, y tras entrar también por el QR, el visor de cada foto o vídeo de la galería muestra el botón **Ocultar**. Pide confirmación y, al aceptar, el medio desaparece de la galería y su URL da 404 al instante: el original pasa a `hidden/` y sus miniaturas a `tmp/`. Se restaura desde **Ocultas** en `/admin`.
+
+**No se borra nada desde la aplicación**, ni siquiera como administrador: no hay botón ni endpoint de borrado. Ocultar siempre es reversible, y lo oculto sigue en `hidden/` para la entrega si se pide.
 
 Notas de operación:
 
