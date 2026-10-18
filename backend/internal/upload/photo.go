@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/PMG801/wedding/internal/storage"
@@ -112,6 +111,9 @@ type Store struct {
 	paths     storage.Paths
 	options   Options
 	semaphore chan struct{}
+	ledger    diskLedger
+	// freeSpace overrides statfs in tests.
+	freeSpace func(path string) (uint64, error)
 }
 
 // NewStore constructs a photo store using already-initialized paths and SQLite.
@@ -163,14 +165,11 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	if err := ctx.Err(); err != nil {
 		return Media{}, err
 	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(s.paths.Tmp, &stat); err != nil {
-		return Media{}, fmt.Errorf("check available disk space: %w", err)
+	reserved, err := s.reserve(declaredSize)
+	if err != nil {
+		return Media{}, err
 	}
-	free := stat.Bavail * uint64(stat.Bsize)
-	if free < s.options.MinFreeBytes || uint64(declaredSize) > free-s.options.MinFreeBytes {
-		return Media{}, ErrInsufficientStorage
-	}
+	defer reserved.release()
 
 	partPath := filepath.Join(s.paths.Tmp, id+".part")
 	if err := os.Remove(partPath); err != nil && !os.IsNotExist(err) {
@@ -207,11 +206,12 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	} else if declaredSize > s.options.MaxBytes {
 		return Media{}, ErrPhotoTooLarge
 	}
-	if _, err := file.Write(header); err != nil {
+	out := reserved.writer(file)
+	if _, err := out.Write(header); err != nil {
 		return Media{}, fmt.Errorf("write photo: %w", err)
 	}
 	remaining := declaredSize - int64(len(header))
-	if _, err := io.CopyN(file, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
+	if _, err := io.CopyN(out, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
 		return Media{}, fmt.Errorf("stream photo: %w", err)
 	}
 	var extra [1]byte

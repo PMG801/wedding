@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 var ErrInvalidDerivativeVariant = errors.New("derivative variant must be t or d")
@@ -81,14 +80,11 @@ func (s *Store) SaveDerivative(ctx context.Context, id, variant string, declared
 	if err := ctx.Err(); err != nil {
 		return Derivative{}, err
 	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(s.paths.Tmp, &stat); err != nil {
-		return Derivative{}, fmt.Errorf("check available disk space: %w", err)
+	reserved, err := s.reserve(declaredSize)
+	if err != nil {
+		return Derivative{}, err
 	}
-	free := stat.Bavail * uint64(stat.Bsize)
-	if free < s.options.MinFreeBytes || uint64(declaredSize) > free-s.options.MinFreeBytes {
-		return Derivative{}, ErrInsufficientStorage
-	}
+	defer reserved.release()
 
 	partPath := s.derivativePartPath(id, variant)
 	file, err := os.OpenFile(partPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -118,12 +114,13 @@ func (s *Store) SaveDerivative(ctx context.Context, id, variant string, declared
 	if err != nil || photoType.MIME != "image/jpeg" {
 		return Derivative{}, ErrUnsupportedPhoto
 	}
-	if _, err := file.Write(header); err != nil {
+	out := reserved.writer(file)
+	if _, err := out.Write(header); err != nil {
 		return Derivative{}, fmt.Errorf("write derivative: %w", err)
 	}
 	remaining := declaredSize - int64(len(header))
 	if remaining > 0 {
-		if _, err := io.CopyN(file, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
+		if _, err := io.CopyN(out, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				return Derivative{}, ErrPhotoSizeMismatch
 			}
