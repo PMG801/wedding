@@ -168,7 +168,7 @@ func runServe() (resultErr error) {
 		}
 		slog.Info("reconciled upload storage",
 			"removed_partials", report.RemovedPartials, "quarantined", report.Quarantined,
-			"promoted_derivatives", report.PromotedDerivatives, "removed_staged", report.RemovedStaged, "skipped_active", report.SkippedActive)
+			"promoted_derivatives", report.PromotedDerivatives, "removed_staged", report.RemovedStaged, "skipped_active", report.SkippedActive, "visibility_repairs", report.VisibilityRepairs)
 	})
 
 	// The backup runs in the background so a slow copy never delays startup.

@@ -291,12 +291,13 @@ En el cliente, un vídeo se sube solo: espera a que terminen las subidas en curs
 
 `boda serve` ejecuta una conciliación al arrancar y después cada `BODA_CLEANUP_INTERVAL` (10 minutos por defecto), según ADR-0009. Cada pasada:
 
+- Primero hace que la ubicación de los archivos siga la visibilidad de SQLite: si una ocultación o una restauración se interrumpió, mueve el original de un medio oculto a `hidden/` y sus derivados a `tmp/*.staged`, o devuelve a `originals/` el de un medio visible que quedó en `hidden/`. Los archivos de `hidden/` sin registro no se tocan ni van a `quarantine/`.
 - Borra los archivos parciales `tmp/*.part` abandonados. Nunca toca los de una subida en curso: se respeta el bloqueo por identificador que mantiene la subida.
 - Publica en `derived/` las variantes que quedaron en `tmp/*.staged`, solo si su original está confirmado y visible. Las de originales ocultos o aún no confirmados siguen privadas.
 - Borra las variantes `tmp/*.staged` cuyo original nunca se confirmó, una vez pasado `BODA_STAGED_DERIVATIVE_TTL` (24 horas por defecto). Así `tmp/` no crece sin límite con miniaturas huérfanas.
 - Mueve a `quarantine/` los archivos de `originals/` sin registro en SQLite. **Nunca los borra**, y si el nombre ya existe en `quarantine/` añade un sufijo numérico en vez de sobrescribir. Se respeta el original que se está confirmando en ese momento.
 
-Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `removed_staged`, `skipped_active`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `removed_staged`, `skipped_active`, `visibility_repairs`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
 
 ## Copias de seguridad de SQLite
 

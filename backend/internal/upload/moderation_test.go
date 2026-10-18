@@ -144,3 +144,64 @@ func TestSetVisibilityKeepsMediaHiddenWhenShowingCannotMoveTheOriginal(t *testin
 	assertVisibility(t, store, "hidden")
 	assertPrivate(t, paths, name)
 }
+
+func TestReconcileMovesFilesOfHiddenMediaOutOfServedDirectories(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
+	name := moderatedPhoto(t, store)
+	// A crash or an operator restore can leave a hidden row with served files.
+	if _, err := store.db.Exec("UPDATE media SET visibility = 'hidden' WHERE id = ?", testID); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPrivate(t, paths, name)
+	if report.VisibilityRepairs != 3 || report.Quarantined != 0 {
+		t.Fatalf("report = %+v; want 3 visibility repairs and nothing quarantined", report)
+	}
+}
+
+func TestReconcileReturnsVisibleMediaLeftInHidden(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
+	name := moderatedPhoto(t, store)
+	if _, err := store.SetVisibility(context.Background(), testID, "hidden"); err != nil {
+		t.Fatal(err)
+	}
+	// Showing records SQLite first; a crash before the move leaves this state.
+	if _, err := store.db.Exec("UPDATE media SET visibility = 'visible' WHERE id = ?", testID); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertServed(t, paths, name)
+	if report.VisibilityRepairs != 1 || report.PromotedDerivatives != 2 {
+		t.Fatalf("report = %+v; want 1 visibility repair and 2 promoted derivatives", report)
+	}
+}
+
+func TestReconcileNeverQuarantinesOrMovesHiddenFiles(t *testing.T) {
+	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
+	name := moderatedPhoto(t, store)
+	if _, err := store.SetVisibility(context.Background(), testID, "hidden"); err != nil {
+		t.Fatal(err)
+	}
+	unindexed := "20260101T000000.000000000Z_" + orphanID + ".jpg"
+	writeFile(t, filepath.Join(paths.Hidden, unindexed), jpegHeader+"x")
+
+	report, err := store.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPrivate(t, paths, name)
+	assertContent(t, filepath.Join(paths.Hidden, unindexed), jpegHeader+"x")
+	assertMissing(t, filepath.Join(paths.Quarantine, unindexed))
+	assertMissing(t, filepath.Join(paths.Quarantine, name))
+	if report.VisibilityRepairs != 0 || report.Quarantined != 0 || report.PromotedDerivatives != 0 {
+		t.Fatalf("report = %+v; want no changes", report)
+	}
+}

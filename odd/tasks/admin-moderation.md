@@ -1,5 +1,5 @@
 # Admin moderation: hide and show media
-Status: IN PROGRESS. Stacked branches from `develop`, each from the previous one; only the last branch is merged (L2): `feat/admin-moderation-storage` (T0-T1) → `feat/admin-moderation-api` (T2-T3) → `feat/admin-moderation-ui` (T4-T5).
+Status: IN PROGRESS. Stacked branches from `develop`, each from the previous one; only the last branch is merged (L2): `feat/admin-moderation-storage` (T0-T1) → `feat/admin-moderation-api` (T2-T3a) → `feat/admin-moderation-listing` (T3b) → `feat/admin-moderation-ui` (T4-T5).
 Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test && npm run build`; `scripts/smoke.sh`. Sources of truth: `docs/data-model.md` (state machine), ADR-0007, ADR-0009, `docs/api.md`.
 
 ## Specs
@@ -19,8 +19,9 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 ## Tasks
 - [x] **T0 [S2, S6, D1-D4] — Record decisions and fix the API contract in `docs/api.md`** · inline · branch `feat/admin-moderation-storage` · evidence: `docs/api.md` PATCH + hidden listing contract, `docs/data-model.md` hidden derivatives · commit: `6978b01`
 - [x] **T1 [S1, S3] — Storage move and store visibility transition, crash-safe** · inline, test-first · risk: item 1 (moves stored data) → own commit · evidence: RED `store.SetVisibility undefined`; GREEN 5 `TestSetVisibility*` (hide/show, idempotent, 404/invalid without changes, rollback on SQLite failure, stays hidden when the move fails); `go test ./... && go vet ./...` ok; startup now also requires `hidden/` on the same filesystem (compose uses one mount) · commit: `148aece`
-- [x] **T2 [S2, S6] — `PATCH /api/admin/media/{id}`** · inline, test-first · branch `feat/admin-moderation-api` · evidence: RED `undefined: WithModeration`; first GREEN run caught an invalid value reaching the store, fixed by validating in the handler; 6 `TestModeration*` (200 hide/show with exact body and `no-store`, 7 invalid bodies → 400 without store calls, 401 without/guest cookie, 404/400/500 mapping, 503 without moderator, `DELETE` → 405); `go test ./... && go vet ./...` ok · commit: see branch log
-- [ ] **T3 [S2, S3] — Admin hidden listing, admin preview route, reconciliation with `hidden/`** · inline, test-first · commit: pending
+- [x] **T2 [S2, S6] — `PATCH /api/admin/media/{id}`** · inline, test-first · branch `feat/admin-moderation-api` · evidence: RED `undefined: WithModeration`; first GREEN run caught an invalid value reaching the store, fixed by validating in the handler; 6 `TestModeration*` (200 hide/show with exact body and `no-store`, 7 invalid bodies → 400 without store calls, 401 without/guest cookie, 404/400/500 mapping, 503 without moderator, `DELETE` → 405); `go test ./... && go vet ./...` ok · commit: `46d39db`
+- [x] **T3a [S1, S3] — Reconciliation makes file locations follow SQLite visibility** · inline, test-first · evidence: RED `report.VisibilityRepairs undefined`; GREEN 3 tests (hidden row with served files → private, visible row left in `hidden/` → served + derivatives promoted, `hidden/` files never quarantined or moved); `go test ./... && go vet ./...` ok. `boda reindex` does not exist yet in code, so the reindex part of S3 has nothing to change · commit: see branch log
+- [ ] **T3b [S2, S3] — Admin hidden listing and admin preview route** · inline, test-first · branch `feat/admin-moderation-listing` (split to keep branches ≈400 lines) · commit: pending
 - [ ] **T4 [S4, S6] — Admin UI** · inline · branch `feat/admin-moderation-ui` · commit: pending
 - [ ] **T5 [S5] — Docs and smoke** · inline · commit: pending
 

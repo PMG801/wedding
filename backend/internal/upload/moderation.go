@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -142,4 +143,97 @@ func moveFile(source, destination string) error {
 		return fmt.Errorf("remove moved file: %w", err)
 	}
 	return syncDirectory(filepath.Dir(source))
+}
+
+// reconcileVisibility makes file locations follow SQLite: hidden rows keep
+// their original in hidden/ and derivatives in tmp/*.staged; visible rows
+// whose original is only in hidden/ get it back in originals/. Files in
+// hidden/ without a row are left untouched.
+func (s *Store) reconcileVisibility(ctx context.Context, report *ReconcileReport) error {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, storage_name FROM media WHERE visibility = 'hidden'")
+	if err != nil {
+		return fmt.Errorf("list hidden media: %w", err)
+	}
+	var hidden []Media
+	for rows.Next() {
+		var media Media
+		if err := rows.Scan(&media.ID, &media.StorageName); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read hidden media: %w", err)
+		}
+		hidden = append(hidden, media)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("read hidden media: %w", err)
+	}
+	var errs []error
+	for _, media := range hidden {
+		errs = append(errs, s.withIdleID(media.ID, report, func() error { return s.repairHidden(ctx, media, report) }))
+	}
+	entries, err := os.ReadDir(s.paths.Hidden)
+	if err != nil {
+		return errors.Join(append(errs, fmt.Errorf("list hidden directory: %w", err))...)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		name := entry.Name()
+		_, rest, found := strings.Cut(name, "_")
+		if entry.IsDir() || !found || !ValidID(rest[:min(len(rest), 36)]) {
+			continue
+		}
+		errs = append(errs, s.withIdleID(rest[:36], report, func() error { return s.repairShown(ctx, name, report) }))
+	}
+	return errors.Join(errs...)
+}
+
+// withIdleID runs repair under the ID lock, skipping IDs an upload holds.
+func (s *Store) withIdleID(id string, report *ReconcileReport, repair func() error) error {
+	unlock, ok := s.tryLockID(id)
+	if !ok {
+		report.SkippedActive++
+		return nil
+	}
+	defer unlock()
+	return repair()
+}
+
+func (s *Store) repairHidden(ctx context.Context, media Media, report *ReconcileReport) error {
+	current, err := s.confirmed(ctx, media.ID)
+	if err != nil || current.Visibility != "hidden" {
+		return err
+	}
+	moves := [][2]string{{filepath.Join(s.paths.Originals, media.StorageName), filepath.Join(s.paths.Hidden, media.StorageName)}}
+	for _, variant := range []string{"t", "d"} {
+		moves = append(moves, [2]string{s.derivativePath(media.ID, variant), s.stagedDerivativePath(media.ID, variant)})
+	}
+	var errs []error
+	for _, move := range moves {
+		if _, err := os.Stat(move[0]); os.IsNotExist(err) {
+			continue
+		}
+		if err := moveFile(move[0], move[1]); err != nil {
+			errs = append(errs, fmt.Errorf("make %q private: %w", filepath.Base(move[0]), err))
+			continue
+		}
+		report.VisibilityRepairs++
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Store) repairShown(ctx context.Context, name string, report *ReconcileReport) error {
+	var visibility string
+	err := s.db.QueryRowContext(ctx, "SELECT visibility FROM media WHERE storage_name = ?", name).Scan(&visibility)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && visibility != "visible") {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check hidden file %q in database: %w", name, err)
+	}
+	if err := moveFile(filepath.Join(s.paths.Hidden, name), filepath.Join(s.paths.Originals, name)); err != nil {
+		return fmt.Errorf("return visible original %q: %w", name, err)
+	}
+	report.VisibilityRepairs++
+	return nil
 }

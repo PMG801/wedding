@@ -19,18 +19,22 @@ type ReconcileReport struct {
 	PromotedDerivatives int
 	RemovedStaged       int
 	SkippedActive       int
+	VisibilityRepairs   int
 }
 
 // Reconcile repairs state left by interrupted work (ADR-0009): it removes
 // abandoned partial files, publishes staged derivatives whose original is
 // confirmed and visible, and moves originals without a database record to
-// quarantine. It never deletes an original and skips any ID whose upload is
-// in progress. A failure on one file does not stop the rest of the pass.
+// quarantine. First it makes file locations follow SQLite visibility, so an
+// interrupted hide or show never leaves hidden media served. It never deletes
+// an original, never quarantines files in hidden/, and skips any ID whose
+// upload is in progress. A failure on one file does not stop the rest.
 func (s *Store) Reconcile(ctx context.Context) (ReconcileReport, error) {
 	var report ReconcileReport
+	visibilityErr := s.reconcileVisibility(ctx, &report)
 	tmpErr := s.reconcileTmp(ctx, &report)
 	originalsErr := s.quarantineUnindexedOriginals(ctx, &report)
-	return report, errors.Join(tmpErr, originalsErr)
+	return report, errors.Join(visibilityErr, tmpErr, originalsErr)
 }
 
 func (s *Store) reconcileTmp(ctx context.Context, report *ReconcileReport) error {
