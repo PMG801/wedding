@@ -24,7 +24,22 @@ La migración `0001_initial.sql` crea únicamente `media` y `settings`; no inser
 
 Los tamaños se validan además como enteros positivos. Hay dos índices parciales para la paginación cronológica, ambos ordenados por `(confirmed_at DESC, id DESC)`: uno para filas `visible` y otro para filas `hidden`. `storage_name` es único. La restricción de visibilidad no incluye estados de subida.
 
-Esta migración establece solo la forma de almacenamiento y no define nombres de claves ni políticas de producto. La capa de aplicación debe validar las claves de `settings` contra una lista permitida al implementar sus operaciones; no se deben guardar secretos allí. Los índices se llaman `media_visible_cursor` y `media_hidden_cursor`; cada uno filtra por su estado correspondiente y ordena por `(confirmed_at DESC, id DESC)`.
+Esta migración establece solo la forma de almacenamiento y no define nombres de claves ni políticas de producto. La capa de aplicación valida las claves de `settings` contra una lista permitida (ver "Claves de `settings`"). Los índices se llaman `media_visible_cursor` y `media_hidden_cursor`; cada uno filtra por su estado correspondiente y ordena por `(confirmed_at DESC, id DESC)`.
+
+## Claves de `settings`
+
+La tabla `settings` guarda solo ajustes operativos, nunca secretos. La capa de aplicación acepta únicamente las claves de una lista permitida; cualquier otra clave se rechaza sin escribir nada.
+
+| Clave | Valores | Ausencia de fila | Significado |
+|---|---|---|---|
+| `uploads_enabled` | `true` o `false` (texto exacto, en minúsculas) | Equivale a `true` | Interruptor manual de subidas (ADR-0008). Con `false`, las subidas de originales y derivados responden `503 uploads_paused`. |
+
+Reglas de `uploads_enabled`:
+
+- Se escribe desde `POST /api/admin/settings` con `INSERT ... ON CONFLICT(key) DO UPDATE`, con `updated_at` en milisegundos Unix UTC.
+- Al arrancar se lee una vez. Un valor distinto de `true` o `false` impide arrancar el servicio.
+- En ejecución, las subidas consultan una caché en memoria y no SQLite. Cada cambio se escribe primero en la base de datos y después en la caché; si la escritura falla, la caché no cambia.
+- La pausa automática por espacio libre (`diskPaused` en el estado) no se guarda aquí: se calcula en cada consulta a partir del disco.
 
 ## Máquina de estados desacoplada
 

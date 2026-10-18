@@ -10,7 +10,11 @@ import (
 // Option customizes NewHandler.
 type Option func(*handlerOptions)
 
-type handlerOptions struct{ maxVideoBytes int64 }
+type handlerOptions struct {
+	maxVideoBytes int64
+	admin         *adminOptions
+	throttle      *auth.LoginThrottle
+}
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
 func WithMaxVideoBytes(limit int64) Option {
@@ -25,9 +29,14 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 	}
 	mux := http.NewServeMux()
 	capacity := newUploadCapacity(maxConcurrent)
+	var switches uploadSwitch
+	if options.admin != nil {
+		switches = options.admin.switches
+	}
 	mux.Handle("GET /e/{token}", guestEntryHandler(eventToken, sessionKey))
-	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, options.maxVideoBytes, idleTimeout)))
-	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, newDerivativeUploadHandler(photos, capacity, maxPhotoBytes, idleTimeout)))
+	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, options.maxVideoBytes, idleTimeout))))
+	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxPhotoBytes, idleTimeout))))
+	registerAdminRoutes(mux, sessionKey, options)
 	mux.Handle("GET /api/media", auth.RequireGuestSession(sessionKey, newGalleryHandler(gallery)))
 	mux.Handle("GET /api/session", auth.RequireGuestSession(sessionKey, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

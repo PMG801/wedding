@@ -1,13 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/PMG801/wedding/internal/auth"
+	"github.com/PMG801/wedding/internal/media"
+	"github.com/PMG801/wedding/internal/upload"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func configureTestEnvironment(t *testing.T, root string) {
@@ -102,5 +111,79 @@ func TestRunServeUsesInitializationAndReturnsListenerFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "data", "boda.db")); err != nil {
 		t.Errorf("runServe() did not initialize the database: %v", err)
+	}
+}
+
+func TestAppHandlerWiresAdminSwitchIntoUploadsAndPersistsIt(t *testing.T) {
+	root := t.TempDir()
+	configureTestEnvironment(t, root)
+	hash, err := bcrypt.GenerateFromPassword([]byte("boda-admin"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BODA_ADMIN_PASSWORD_HASH", string(hash))
+	ctx := context.Background()
+	database, cfg, paths, err := initialize(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	photos, err := upload.NewStore(database, paths, upload.Options{MaxBytes: cfg.MaxPhotoBytes, MaxVideoBytes: cfg.MaxVideoBytes, MaxConcurrent: cfg.MaxConcurrentUploads})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gallery, err := media.NewGallery(database, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	if err != nil {
+		t.Fatalf("newAppHandler() = %v", err)
+	}
+
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"password":"boda-admin"}`)))
+	if login.Code != http.StatusNoContent {
+		t.Fatalf("admin login = %d; want 204", login.Code)
+	}
+	var adminCookie *http.Cookie
+	for _, cookie := range login.Result().Cookies() {
+		if cookie.Name == auth.AdminCookieName {
+			adminCookie = cookie
+		}
+	}
+	if adminCookie == nil {
+		t.Fatal("login did not set the admin cookie")
+	}
+
+	disable := httptest.NewRequest(http.MethodPost, "/api/admin/settings", strings.NewReader(`{"uploadsEnabled":false}`))
+	disable.AddCookie(adminCookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, disable)
+	if response.Code != http.StatusOK {
+		t.Fatalf("disable uploads = %d %q; want 200", response.Code, response.Body.String())
+	}
+
+	guest := auth.NewGuestCookie([]byte(cfg.SessionKey), time.Now())
+	photo := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
+	putRequest := httptest.NewRequest(http.MethodPut, "/api/media/123e4567-e89b-42d3-a456-426614174000", bytes.NewReader(photo))
+	putRequest.AddCookie(guest)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, putRequest)
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"uploads_paused\"}\n" {
+		t.Fatalf("PUT while paused = %d %q; want 503 uploads_paused", response.Code, response.Body.String())
+	}
+
+	// A fresh handler on the same database must start with the persisted switch.
+	restarted, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := httptest.NewRequest(http.MethodGet, "/api/admin/status", nil)
+	status.AddCookie(adminCookie)
+	response = httptest.NewRecorder()
+	restarted.ServeHTTP(response, status)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"uploadsEnabled":false`) {
+		t.Fatalf("status after restart = %d %q; want uploadsEnabled false", response.Code, response.Body.String())
 	}
 }

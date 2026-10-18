@@ -17,6 +17,7 @@ import (
 	"github.com/PMG801/wedding/internal/httpapi"
 	"github.com/PMG801/wedding/internal/jobs"
 	"github.com/PMG801/wedding/internal/media"
+	"github.com/PMG801/wedding/internal/settings"
 	"github.com/PMG801/wedding/internal/storage"
 	"github.com/PMG801/wedding/internal/upload"
 )
@@ -78,6 +79,18 @@ func runCheck() (resultErr error) {
 	return nil
 }
 
+// newAppHandler composes the HTTP handler: guest and public routes plus the
+// administrator routes, sharing one cached upload switch loaded from SQLite.
+func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, photos *upload.Store, gallery *media.Gallery) (http.Handler, error) {
+	uploadSwitch, err := settings.Open(ctx, database)
+	if err != nil {
+		return nil, fmt.Errorf("load settings: %w", err)
+	}
+	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
+		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
+		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos)), nil
+}
+
 func runServe() (resultErr error) {
 	database, cfg, paths, err := initialize(context.Background())
 	if err != nil {
@@ -103,9 +116,13 @@ func runServe() (resultErr error) {
 	if err != nil {
 		return fmt.Errorf("initialize gallery: %w", err)
 	}
+	handler, err := newAppHandler(context.Background(), database, cfg, photos, gallery)
+	if err != nil {
+		return err
+	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery, httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes)),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -12,7 +12,72 @@ El QR apunta a `/e/{token}`. La aplicación comprueba el token, crea una cookie 
 
 ### `POST /api/admin/login` — inicio de sesión de administrador
 
-El administrador entra con una contraseña con hash y una cookie de sesión aparte (`SameSite=Strict`). El login aplica un retraso progresivo tras fallos. La definición no proporciona el esquema del cuerpo ni la forma exacta de la cookie, sus atributos completos o los códigos de respuesta.
+Cuerpo JSON de como máximo 4 KiB, sin campos adicionales:
+
+```json
+{"password":"<contraseña>"}
+```
+
+La contraseña se compara con `BODA_ADMIN_PASSWORD_HASH` (bcrypt o argon2id) en tiempo constante.
+
+Retraso progresivo: tras cada fallo, el siguiente intento espera antes de verificarse, 1 s tras el primer fallo, 2 s tras el segundo, 4 s, y así hasta 30 s como máximo. Un acierto restablece el contador. El contador es global (no por IP) y vive solo en memoria, así que se reinicia con el proceso.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `204 No Content` | Contraseña correcta; cuerpo vacío y cookie `admin_session`. |
+| `400 Bad Request` | JSON no válido, campo desconocido o tipo incorrecto (`{"error":"invalid_request"}`). |
+| `401 Unauthorized` | Contraseña incorrecta (`{"error":"invalid_credentials"}`). |
+| `413 Request Entity Too Large` | Cuerpo mayor de 4 KiB (`{"error":"request_too_large"}`). |
+
+Cookie `admin_session`: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, `Max-Age=43200` (12 horas). Va firmada con la clave de sesión de la aplicación, pero con un dominio de firma distinto al de la cookie de invitado: ninguna de las dos sirve en la ruta de la otra. Todas las respuestas de `/api/admin/*` llevan `Cache-Control: no-store`.
+
+### `POST /api/admin/logout` — cierre de sesión
+
+No exige sesión. Responde `204 No Content` y envía una cookie `admin_session` vacía con `Max-Age=-1`, que hace que el navegador la elimine. La cookie es firmada y sin estado en el servidor: una copia robada sigue siendo válida hasta caducar (12 horas). Cerrar sesión solo borra la cookie del navegador que lo pide.
+
+### `GET /api/admin/status` — estado de subidas y disco
+
+Exige la sesión de administrador. Responde `200 OK` con `Content-Type: application/json; charset=utf-8`:
+
+```json
+{
+  "uploadsEnabled": true,
+  "diskPaused": false,
+  "freeBytes": 10000000000,
+  "reservedBytes": 1000000000,
+  "minFreeBytes": 16106127360
+}
+```
+
+- `uploadsEnabled`: el interruptor manual (`uploads_enabled` en SQLite; sin fila, `true`).
+- `diskPaused`: `true` cuando `freeBytes - reservedBytes < minFreeBytes` (o cuando `reservedBytes` supera `freeBytes`). Es informativo: el espacio real lo aplica cada subida con `507 insufficient_storage`.
+- `freeBytes`, `reservedBytes` y `minFreeBytes`: bytes libres del volumen, bytes reservados por subidas en curso y umbral configurado en `BODA_DISK_MIN_FREE_BYTES`.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Estado actual. |
+| `401 Unauthorized` | Falta una sesión de administrador válida, o la cookie es de invitado (`{"error":"admin_session_required"}`). |
+| `503 Service Unavailable` | No se puede medir el disco (`{"error":"status_unavailable"}`). |
+
+### `POST /api/admin/settings` — interruptor de subidas
+
+Exige la sesión de administrador. Cuerpo JSON con el campo obligatorio `uploadsEnabled` (booleano) y sin campos adicionales:
+
+```json
+{"uploadsEnabled":false}
+```
+
+El cambio se guarda en SQLite (clave `uploads_enabled`, ver `docs/data-model.md`) antes de aplicarse en memoria, sobrevive a reinicios y surte efecto en la siguiente petición de subida. Con `false`, `PUT /api/media/{id}` y `POST /api/media/{id}/derived` responden `503 uploads_paused`.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Interruptor guardado; cuerpo con el mismo JSON que `GET /api/admin/status`. |
+| `400 Bad Request` | Cuerpo no válido, campo ausente, tipo incorrecto o campo desconocido (`{"error":"invalid_request"}`). |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `500 Internal Server Error` | No se ha podido guardar el ajuste (`{"error":"settings_failed"}`); el interruptor no cambia. |
+| `503 Service Unavailable` | El ajuste se ha guardado, pero no se ha podido medir el disco para la respuesta (`{"error":"status_unavailable"}`). |
+
+Si el servidor arranca sin configuración de administración, las rutas `status` y `settings` responden `503 {"error":"admin_unavailable"}` después de comprobar la sesión.
 
 ### `POST /api/media/{id}/derived?variant=t|d` — versión derivada JPEG
 
@@ -34,6 +99,7 @@ Las variantes pueden subirse antes que el original. En ese caso quedan en almace
 | `415 Unsupported Media Type` | El tipo declarado no es `image/jpeg` o la firma no es JPEG (`{"error":"unsupported_derivative_format"}`). |
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `503 Service Unavailable` | Capacidad compartida de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`; si el servicio de derivados no está disponible, `{"error":"derivatives_unavailable"}`. |
+| `503 Service Unavailable` (derivados) | Subidas en pausa con el interruptor de administración: `{"error":"uploads_paused"}`, sin leer el cuerpo ni reservar capacidad. |
 | `500 Internal Server Error` | Error interno al guardar el derivado (`{"error":"derivative_upload_failed"}`). |
 
 ### `PUT /api/media/{id}` — original de foto o vídeo en streaming
@@ -56,6 +122,7 @@ Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (9
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `500 Internal Server Error` | Error interno al persistir la foto (`{"error":"upload_failed"}`). |
 | `503 Service Unavailable` | Capacidad de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`. Si el servicio de subidas no está disponible, responde `{"error":"uploads_unavailable"}`. |
+| `503 Service Unavailable` | Subidas en pausa con el interruptor de administración (`uploads_enabled` en `false`): respuesta inmediata, sin leer el cuerpo, sin `Retry-After` y `{"error":"uploads_paused"}`. Las lecturas (galería, sesión, medios) siguen funcionando. |
 
 Los errores JSON usan `Content-Type: application/json; charset=utf-8` y el formato `{"error":"<código>"}` seguido de salto de línea. La capacidad máxima simultánea se configura con `BODA_MAX_CONCURRENT_UPLOADS` (30 por defecto); una petición que encuentre todos los espacios ocupados se rechaza sin esperar ni leer su cuerpo.
 
@@ -119,7 +186,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 
 ## Información pendiente para completar el contrato
 
-Los esquemas de moderación y ajustes administrativos siguen pendientes de definición.
+El esquema de moderación (`PATCH /api/admin/media/{id}`) sigue pendiente de definición. Los endpoints de sesión de administrador (`login`, `logout`), `status` y `settings` están documentados arriba.
 
 ### `GET /api/health` — estado del servicio
 
