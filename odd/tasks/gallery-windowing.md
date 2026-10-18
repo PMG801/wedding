@@ -33,3 +33,9 @@ Risk: none expected (frontend only, existing feed tests cover regressions); revi
 ## Log
 - **L1** (user, 2026-10-18): "continua con la siguiente implementacion, pero antes quiero que merges los cambios a develop y hagas una limpieza de ramas"
 - **L2** Before starting: `feat/gallery-likes-smoke` fast-forwarded into `develop` and pushed (dd49b1f); all merged local and remote branches deleted except `main`/`develop`. CI watch unavailable (`gh` not authenticated).
+
+## Review
+- Native review `review-4dda05ec34c82905` of `develop..feat/gallery-windowing` (`13ee9ad`..`67d9c44`; lenses resilience, reliability; 6 files, 307 lines): **approved**, acknowledged (authority burned). Non-blocking advisories, later work:
+  - `GalleryGrid.svelte:20-83` — component has no unit test (vitest has no Svelte plugin); covered by the pure-function tests and the browser check.
+  - `GalleryGrid.svelte:70-83` — the window is not re-measured when the first images finish loading or fonts shift layout (suggestion).
+  - `GalleryGrid.svelte:44-49` — spacer gap subtraction edge case when a spacer is shorter than one row gap.
