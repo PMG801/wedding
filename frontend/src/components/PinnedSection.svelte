@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { GuestSessionRequiredError } from '../lib/api/media'
-  import { fetchPinned, type PinnedItem } from '../lib/api/pinned'
+  import { fetchPinned, type PinnedImage, type PinnedItem } from '../lib/api/pinned'
   import { copy } from '../lib/i18n/es'
   import { readCollapsed, writeCollapsed } from '../lib/pinned/collapse'
 
@@ -9,6 +9,12 @@
 
   let items = $state<PinnedItem[]>([])
   let collapsed = $state(readCollapsed())
+  let opened = $state<PinnedImage | null>(null)
+  let dialog = $state<HTMLDialogElement>()
+
+  $effect(() => {
+    if (opened !== null && dialog !== undefined && !dialog.open) dialog.showModal()
+  })
 
   onMount(() => {
     void load()
@@ -50,7 +56,14 @@
         {#each items as item (item.id)}
           <li class="pinned-item">
             {#if item.image !== null}
-              <img src={item.image.thumbUrl} alt={copy.pinned.imageAlt} loading="lazy" decoding="async" />
+              <button
+                class="pinned-open"
+                type="button"
+                aria-label={copy.pinned.openImage}
+                onclick={() => (opened = item.image)}
+              >
+                <img src={item.image.thumbUrl} alt={copy.pinned.imageAlt} loading="lazy" decoding="async" />
+              </button>
             {/if}
             <div class="pinned-text">
               <h3>{item.title}</h3>
@@ -63,6 +76,23 @@
       </ul>
     </div>
   </section>
+{/if}
+
+{#if opened !== null}
+  <dialog
+    bind:this={dialog}
+    class="pinned-dialog"
+    aria-label={copy.pinned.imageAlt}
+    onclose={() => (opened = null)}
+    onclick={(event) => {
+      if (event.target === dialog) dialog?.close()
+    }}
+  >
+    <img src={opened.detailUrl ?? opened.thumbUrl} alt={copy.pinned.imageAlt} decoding="async" />
+    <form method="dialog" class="pinned-close">
+      <button class="button round" type="submit" aria-label={copy.detail.close}>✕</button>
+    </form>
+  </dialog>
 {/if}
 
 <style>
@@ -103,12 +133,51 @@
     align-items: start;
   }
 
+  .pinned-open {
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: zoom-in;
+    line-height: 0;
+  }
+
   .pinned-item img {
     width: 5rem;
     height: 5rem;
     object-fit: cover;
     border-radius: 0.5rem;
     background: var(--line);
+  }
+
+  .pinned-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 3.5rem 0.5rem 0.5rem;
+    border: none;
+    background: #1d1a17;
+    display: grid;
+    place-items: center;
+  }
+
+  .pinned-dialog::backdrop {
+    background: rgb(20 17 15 / 0.9);
+  }
+
+  .pinned-dialog img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .pinned-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    margin: 0;
   }
 
   .pinned-text h3 {

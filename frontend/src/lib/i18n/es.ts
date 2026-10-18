@@ -35,6 +35,7 @@ export const copy = {
     expand: 'Desplegar',
     collapse: 'Plegar',
     imageAlt: 'Foto de la publicación fijada',
+    openImage: 'Ampliar la foto',
     admin: {
       heading: 'Publicaciones fijadas',
       intro: 'Hasta 5 publicaciones encima de la galería. Solo texto: los saltos de línea se conservan y no se admite formato.',
