@@ -1,5 +1,5 @@
 # Gallery likes and popularity ranking
-Status: IN PROGRESS (authorized L6). Stacked branches from `feat/admin-moderation-docs`, each from the previous one; only the last branch is merged: `feat/gallery-likes-contract` (T0) → `feat/gallery-likes-storage` (T1) → `feat/gallery-likes-api` (T2-T3) → `feat/gallery-likes-ui` (T4) → `feat/gallery-likes-smoke` (T5, merge this last branch).
+Status: DONE (pending review/merge of `feat/gallery-likes-smoke`). Stacked branches from `feat/admin-moderation-docs`, each from the previous one; only the last branch is merged: `feat/gallery-likes-contract` (T0) → `feat/gallery-likes-storage` (T1) → `feat/gallery-likes-api` (T2-T3) → `feat/gallery-likes-ui` (T4) → `feat/gallery-likes-smoke` (T5, merge this last branch).
 Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test && npm run build`; `scripts/smoke.sh`. Sources of truth: `docs/api.md`, `docs/data-model.md`, ADR-0007, ADR-0012.
 
 ## Specs
@@ -25,7 +25,7 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 - [x] **T2 [S1, S4] — `PUT/DELETE /api/media/{id}/like`** · backend worker, test-first · branch `feat/gallery-likes-api` · evidence: RED `undefined: WithLikes`; GREEN exact codes/JSON/`no-store`, two cookies count 2, hidden 404 unchanged, not gated by pause · commit: `87950f7` (with T3)
 - [x] **T3 [S3, S4] — `like_count`/`liked_by_me` in the gallery and `GET /api/media/top`** · backend worker, test-first; existing chronological cursor tests stay green · branch `feat/gallery-likes-api` · evidence: RED `GET /api/media/top` → `405; want 401`; GREEN per-guest fields, cursor stable, top order/ties/exclusions/cap 50, `EXPLAIN` uses `media_visible_popularity`; admin hidden listing keeps its original shape (no like fields); `gofmt -l .` empty, `go vet`, `go test -race ./...` green · commit: `87950f7`
 - [x] **T4 [S5] — Frontend like button and "Recientes"/"Más gustadas" views** · frontend worker (parallel, against the T0 contract), test-first · branch `feat/gallery-likes-ui` · evidence: RED `fetchTopMedia is not a function`, 12 feed failures, `copy.likes` undefined; GREEN `npm test` 118, `npm run build`, `svelte-check` 0/0. ≈630 lines (half tests); not split because API client and components must change together to type-check · commit: `d4ebf08`
-- [x] **T5 [S6] — Runbook note and smoke coverage** · inline · branch `feat/gallery-likes-smoke` · evidence: runbook «Me gusta» section; `scripts/smoke.sh` adds a second guest via QR, idempotent PUT (1), second guest (2), exact top envelope, hidden → like 404 and empty ranking, `docker compose restart app`, DELETE after restart → 1; `scripts/smoke.sh` exit 0 with "Likes per guest, ranking, hidden exclusion and persistence across restart passed." · commit: this branch's T5 commit
+- [x] **T5 [S6] — Runbook note and smoke coverage** · inline · branch `feat/gallery-likes-smoke` · evidence: runbook «Me gusta» section; `scripts/smoke.sh` adds a second guest via QR, idempotent PUT (1), second guest (2), exact top envelope, hidden → like 404 and empty ranking, `docker compose restart app`, DELETE after restart → 1; `scripts/smoke.sh` exit 0 with "Likes per guest, ranking, hidden exclusion and persistence across restart passed." · commit: `70952b4`
 
 ## Known limits
 - Concurrent requests carrying the same legacy v1 cookie each mint a different `guest_id`; the browser keeps the last `Set-Cookie`. Only affects the one-time upgrade window.
@@ -36,6 +36,13 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 - Independent verify of `fac7d14` (`gentle-ai-verify`, risk items 1+2): S2 PASS, S4 PASS, D6 PASS; `go vet`, `go test -race ./...` green; ad-hoc probe (scratch only) 32 concurrent likes by one guest → count 1, 100 like/unlike → `like_count == rows`.
 - S1 reported FAIL: a client that ignores `Set-Cookie` and keeps replaying a legacy v1 cookie gets a fresh `guest_id` per request, so it can like a medium many times. **Decision (parent): accepted, not fixed.** The same client can already mint unlimited fresh cookies by calling `/e/{token}` without a cookie, which D1/L3 accept ("otro navegador ... o caduca la cookie"); a browser stores the upgraded cookie and is limited normally. The suggested fix (derive `guest_id` from the v1 MAC) would merge distinct guests: v1 cookies contain only the expiry in seconds, so two guests entering in the same second hold byte-identical v1 cookies. v1 cookies exist only from QA before this change and expire within 30 days.
 - Non-blocking follow-ups: `INSERT OR IGNORE` also hides CHECK violations (ids are always generated/validated today); add a committed concurrency test; middleware-level expired-cookie test; `media_likes` FK has no `ON DELETE` (no delete path exists, by design).
+
+## Review
+- Native review `review-6cb77220456a748c` of `fac7d14` only (range `feat/gallery-likes-contract..feat/gallery-likes-storage`, user chose the high-risk commit alone; lenses risk, resilience, reliability; 9 files, 800 lines): **approved**, acknowledged (authority burned). Non-blocking advisories, left as later work:
+  - R1-001 / R4-001 `auth/session.go:90-93` and R3 `auth/session.go:75-79` — legacy v1 upgrade identity (see the decision under Verification).
+  - R4-002 `media/likes.go:47-76` — like transaction resilience.
+  - R3 suggestion `media/likes.go:52-76` — test the rollback on a hidden medium more directly.
+- T2-T4 (`87950f7`, `d4ebf08`) and T5 had no native review: not high-risk; covered by tests and smoke.
 
 ## Dependencies
 Admin hiding (`admin-moderation`) affects S4; it is implemented on the base branch.
