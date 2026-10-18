@@ -36,7 +36,7 @@ Tests: `cd backend && go test ./... && go vet ./...`; `cd frontend && npm test &
 - Non-blocking follow-ups: `INSERT OR IGNORE` also hides CHECK violations (ids are always generated/validated today); add a committed concurrency test; middleware-level expired-cookie test; `media_likes` FK has no `ON DELETE` (no delete path exists, by design).
 
 ## Follow-up
-- [x] **T6 [S1, D6] — Reject old-format cookies without `guest_id`** · inline, test-first · branch `feat/gallery-likes-smoke` · evidence: RED `cookie without guest_id was accepted`, `old cookie session = 204; want 401`; GREEN old cookie → 401 text without `Set-Cookie` on `/api/session` and like `PUT` (no rows written), QR entry with an old cookie gets a fresh identity; v1 parsing and upgrade removed from `auth/session.go`; `gofmt`, `go vet`, `go test -race ./...` green · commit: pending
+- [x] **T6 [S1, D6] — Reject old-format cookies without `guest_id`** · inline, test-first · branch `feat/gallery-likes-smoke` · evidence: RED `cookie without guest_id was accepted`, `old cookie session = 204; want 401`; GREEN old cookie → 401 text without `Set-Cookie` on `/api/session` and like `PUT` (no rows written), QR entry with an old cookie gets a fresh identity; v1 parsing and upgrade removed from `auth/session.go`; `gofmt`, `go vet`, `go test -race ./...` green; `scripts/smoke.sh` exit 0 · commit: `51df903`
 
 ## Review
 - Native review `review-6cb77220456a748c` of `fac7d14` only (range `feat/gallery-likes-contract..feat/gallery-likes-storage`, user chose the high-risk commit alone; lenses risk, resilience, reliability; 9 files, 800 lines): **approved**, acknowledged (authority burned). Non-blocking advisories, left as later work:
