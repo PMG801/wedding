@@ -4,6 +4,7 @@
   import PhotoDialog from '../components/PhotoDialog.svelte'
   import UploadPanel from '../components/UploadPanel.svelte'
   import { fetchGalleryPage, xhrTransport } from '../lib/api/media'
+  import { hasAdminSession } from '../lib/api/moderation'
   import { GalleryFeed, type GalleryFeedState } from '../lib/gallery/feed'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
@@ -15,6 +16,7 @@
   let dismissed = $state(new Set<string>())
   let gallery = $state<GalleryFeedState>({ items: [], status: 'idle', hasMore: true })
   let route = $state<Route>(parseRoute(location.hash))
+  let canHide = $state(false)
 
   let finishedUploads = 0
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -55,6 +57,7 @@
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (busy) event.preventDefault()
     }
+    void hasAdminSession().then((isAdmin) => (canHide = isAdmin))
     addEventListener('hashchange', onHashChange)
     addEventListener('beforeunload', onBeforeUnload)
     return () => {
@@ -99,5 +102,6 @@
     hasMore={gallery.hasMore}
     onNavigate={showPhoto}
     onClose={closePhoto}
+    onHide={canHide ? (id) => feed.remove(id) : undefined}
   />
 {/if}

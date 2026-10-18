@@ -95,4 +95,28 @@ describe('GalleryFeed', () => {
     await feed.loadMore()
     expect(last()).toEqual(expect.objectContaining({ status: 'idle', items: [item(1)] }))
   })
+
+  it('removes one photo without refetching and emits the change', async () => {
+    const fetchPage = vi.fn(async () => page([3, 2, 1], null))
+    const { feed, last, states } = setup(fetchPage)
+
+    await feed.loadMore()
+    const emitted = states.length
+    feed.remove(item(2).id)
+
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+    expect(states.length).toBe(emitted + 1)
+    expect(last().items.map((entry) => entry.confirmedAt)).toEqual([3, 1])
+  })
+
+  it('ignores removing an unknown photo', async () => {
+    const { feed, last, states } = setup(async () => page([1], null))
+
+    await feed.loadMore()
+    const emitted = states.length
+    feed.remove(item(99).id)
+
+    expect(states.length).toBe(emitted)
+    expect(last().items).toEqual([item(1)])
+  })
 })

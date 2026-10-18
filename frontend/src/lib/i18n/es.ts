@@ -30,7 +30,11 @@ export const copy = {
     next: 'Foto siguiente',
     download: 'Descargar original',
     videoUnsupported: 'Tu navegador no puede reproducir este vídeo. Puedes descargar el original.',
-    noPreview: 'Este formato no se puede mostrar en tu navegador. Puedes descargar la foto original.'
+    noPreview: 'Este formato no se puede mostrar en tu navegador. Puedes descargar la foto original.',
+    hide: 'Ocultar',
+    hideConfirm:
+      'Los invitados dejarán de ver esta foto. No se borra: puedes volver a mostrarla desde la página de administración.',
+    hideFailed: 'No se ha podido ocultar la foto. Inténtalo de nuevo.'
   },
   entry: {
     heading: 'Escanea el código QR',

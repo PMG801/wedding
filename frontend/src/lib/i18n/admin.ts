@@ -27,5 +27,15 @@ export const adminCopy = {
     free: 'Espacio libre',
     reserved: 'Reservado por subidas en curso'
   },
+  moderation: {
+    heading: 'Ocultas',
+    empty: 'No hay nada oculto.',
+    thumbAlt: 'Foto oculta',
+    noPreview: 'Sin vista previa',
+    show: 'Mostrar',
+    loadMore: 'Cargar más',
+    loadFailed: 'No se han podido cargar los medios ocultos. Inténtalo de nuevo.',
+    failed: 'No se ha podido mostrar el medio. Inténtalo de nuevo.'
+  },
   logout: 'Cerrar sesión'
 } as const

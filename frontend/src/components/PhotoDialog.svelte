@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { setMediaVisibility } from '../lib/api/moderation'
   import type { GalleryItem } from '../lib/api/media'
   import { detailImage, downloadFileName, downloadUrl, isVideoItem, videoPoster } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
@@ -8,18 +9,23 @@
     index,
     hasMore,
     onNavigate,
-    onClose
+    onClose,
+    onHide
   }: {
     items: GalleryItem[]
     index: number
     hasMore: boolean
     onNavigate: (index: number) => void
     onClose: () => void
+    /** Present only for an administrator; called after the item was hidden on the server. */
+    onHide?: (id: string) => void
   } = $props()
 
   let dialog = $state<HTMLDialogElement>()
   let touchStartX: number | null = null
   let failedVideoId = $state<string | null>(null)
+  let hiding = $state(false)
+  let hideError = $state('')
 
   const item = $derived(items[index])
   const image = $derived(detailImage(item))
@@ -31,12 +37,34 @@
     if (dialog !== undefined && !dialog.open) dialog.showModal()
   })
 
+  $effect(() => {
+    // An error belongs to the photo that failed to hide.
+    void item.id
+    hideError = ''
+  })
+
   function previous() {
     if (hasPrevious) onNavigate(index - 1)
   }
 
   function next() {
     if (index < items.length - 1) onNavigate(index + 1)
+  }
+
+  async function hide() {
+    if (hiding || !confirm(copy.detail.hideConfirm)) return
+    hiding = true
+    hideError = ''
+    try {
+      await setMediaVisibility(item.id, 'hidden')
+    } catch {
+      hideError = copy.detail.hideFailed
+      return
+    } finally {
+      hiding = false
+    }
+    onHide?.(item.id)
+    onClose()
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -91,7 +119,13 @@
   <div class="controls">
     <button class="button round" type="button" onclick={previous} disabled={!hasPrevious} aria-label={copy.detail.previous}>‹</button>
     <a class="button primary" href={downloadUrl(item)} download={downloadFileName(item)}>{copy.detail.download}</a>
+    {#if onHide !== undefined}
+      <button class="button" type="button" onclick={hide} disabled={hiding}>{copy.detail.hide}</button>
+    {/if}
     <button class="button round" type="button" onclick={next} disabled={!hasNext} aria-label={copy.detail.next}>›</button>
+    {#if hideError !== ''}
+      <p class="hide-error" role="alert">{hideError}</p>
+    {/if}
   </div>
 
   <form method="dialog" class="close">
@@ -143,8 +177,16 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    flex-wrap: wrap;
     gap: 1rem;
     padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .hide-error {
+    width: 100%;
+    margin: 0;
+    text-align: center;
+    color: var(--danger);
   }
 
   .close {

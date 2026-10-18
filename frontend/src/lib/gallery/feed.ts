@@ -39,6 +39,14 @@ export class GalleryFeed {
     this.#emit()
   }
 
+  /** Drops one photo from the list (e.g. after it was hidden). Does not refetch. */
+  remove(id: string): void {
+    const remaining = this.#items.filter((entry) => entry.id !== id)
+    if (remaining.length === this.#items.length) return
+    this.#items = remaining
+    this.#emit()
+  }
+
   /** Fetches the newest page and merges it on top, e.g. after an upload finishes. */
   async refresh(): Promise<void> {
     if (this.#status === 'loading') return

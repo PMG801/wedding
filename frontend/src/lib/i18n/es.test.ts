@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { uploadErrorMessages, uploadSummaryLabels } from './es'
+import { copy, uploadErrorMessages, uploadSummaryLabels } from './es'
 
 describe('Spanish UI copy', () => {
   it('explains every upload error code to guests', () => {
@@ -23,5 +23,11 @@ describe('Spanish UI copy', () => {
     expect(uploadSummaryLabels.rejected(1)).toContain('Un archivo no se puede subir')
     expect(uploadSummaryLabels.rejected(2)).toContain('2 archivos no se pueden subir')
     expect(uploadSummaryLabels.rejected(2)).toContain('JPEG, PNG o HEIC')
+  })
+
+  it('tells guests that hiding is reversible and deletes nothing', () => {
+    expect(copy.detail.hideConfirm).toContain('No se borra')
+    expect(copy.detail.hideConfirm).toContain('administración')
+    expect(copy.detail.hideFailed.length).toBeGreaterThan(10)
   })
 })

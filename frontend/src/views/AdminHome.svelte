@@ -8,6 +8,7 @@
     setUploadsEnabled,
     type AdminStatus
   } from '../lib/api/admin'
+  import HiddenMediaList from '../components/HiddenMediaList.svelte'
   import { canSubmitPassword, diskNotice, formatGigabytes, uploadsToggle } from '../lib/admin/view'
   import { adminCopy } from '../lib/i18n/admin'
 
@@ -74,6 +75,11 @@
     }
   }
 
+  function expireSession(): void {
+    status = null
+    phase = 'login'
+  }
+
   async function logout(): Promise<void> {
     if (busy) return
     busy = true
@@ -131,6 +137,8 @@
       <dt>{adminCopy.disk.reserved}</dt>
       <dd>{formatGigabytes(status.reservedBytes)}</dd>
     </dl>
+
+    <HiddenMediaList onSessionLost={expireSession} />
 
     <button class="button small" type="button" onclick={logout} disabled={busy}>{adminCopy.logout}</button>
   {/if}
