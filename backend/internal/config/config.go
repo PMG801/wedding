@@ -22,6 +22,10 @@ type Config struct {
 	UploadIdleTimeout    time.Duration
 	DiskMinFreeBytes     int64
 	CleanupInterval      time.Duration
+	MaxDerivativeBytes   int64
+	StagedDerivativeTTL  time.Duration
+	BackupInterval       time.Duration
+	BackupKeep           int
 	ThumbFallback        bool
 	LogLevel             string
 }
@@ -85,6 +89,18 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.CleanupInterval, err = positiveDuration(lookup, "BODA_CLEANUP_INTERVAL", 10*time.Minute); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxDerivativeBytes, err = positiveInt64(lookup, "BODA_MAX_DERIVATIVE_BYTES", 8388608); err != nil {
+		return Config{}, err
+	}
+	if cfg.StagedDerivativeTTL, err = positiveDuration(lookup, "BODA_STAGED_DERIVATIVE_TTL", 24*time.Hour); err != nil {
+		return Config{}, err
+	}
+	if cfg.BackupInterval, err = positiveDuration(lookup, "BODA_BACKUP_INTERVAL", 24*time.Hour); err != nil {
+		return Config{}, err
+	}
+	if cfg.BackupKeep, err = positiveInt(lookup, "BODA_BACKUP_KEEP", 7); err != nil {
 		return Config{}, err
 	}
 	if cfg.ThumbFallback, err = boolSetting(lookup, "BODA_THUMB_FALLBACK", false); err != nil {

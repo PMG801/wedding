@@ -93,3 +93,31 @@ func TestLoadFromRejectsInvalidValuesWithoutLeakingSecret(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFromParsesBackupAndDerivativeSettings(t *testing.T) {
+	got, err := loadFrom(validEnvironment())
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if got.BackupInterval != 24*time.Hour || got.BackupKeep != 7 || got.MaxDerivativeBytes != 8388608 || got.StagedDerivativeTTL != 24*time.Hour {
+		t.Errorf("unexpected defaults: %+v", got)
+	}
+	values := validEnvironment()
+	values["BODA_BACKUP_INTERVAL"] = "6h"
+	values["BODA_BACKUP_KEEP"] = "3"
+	values["BODA_MAX_DERIVATIVE_BYTES"] = "1048576"
+	values["BODA_STAGED_DERIVATIVE_TTL"] = "2h"
+	if got, err = loadFrom(values); err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if got.BackupInterval != 6*time.Hour || got.BackupKeep != 3 || got.MaxDerivativeBytes != 1048576 || got.StagedDerivativeTTL != 2*time.Hour {
+		t.Errorf("overrides were not parsed: %+v", got)
+	}
+	for _, key := range []string{"BODA_BACKUP_INTERVAL", "BODA_BACKUP_KEEP", "BODA_MAX_DERIVATIVE_BYTES", "BODA_STAGED_DERIVATIVE_TTL"} {
+		values := validEnvironment()
+		values[key] = "0"
+		if _, err := loadFrom(values); err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("LoadFrom(%s=0) error = %v; want an error naming the key", key, err)
+		}
+	}
+}
