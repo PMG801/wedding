@@ -25,14 +25,10 @@ func newGalleryHandler(gallery mediaLister) http.Handler {
 			writeUploadError(w, http.StatusServiceUnavailable, "gallery_unavailable")
 			return
 		}
-		limit := defaultGalleryLimit
-		if raw := r.URL.Query().Get("limit"); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed < 1 || parsed > maxGalleryLimit {
-				writeUploadError(w, http.StatusBadRequest, "invalid_limit")
-				return
-			}
-			limit = parsed
+		limit, ok := parseGalleryLimit(r.URL.Query().Get("limit"))
+		if !ok {
+			writeUploadError(w, http.StatusBadRequest, "invalid_limit")
+			return
 		}
 		page, err := gallery.List(r.Context(), r.URL.Query().Get("cursor"), limit)
 		if err != nil {
@@ -48,4 +44,16 @@ func newGalleryHandler(gallery mediaLister) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(page)
 	})
+}
+
+// parseGalleryLimit reads the optional page size shared by gallery listings.
+func parseGalleryLimit(raw string) (int, bool) {
+	if raw == "" {
+		return defaultGalleryLimit, true
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > maxGalleryLimit {
+		return 0, false
+	}
+	return limit, true
 }

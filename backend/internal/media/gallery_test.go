@@ -53,7 +53,7 @@ func TestListReturnsVisibleMediaNewestFirstWithStableCursor(t *testing.T) {
 	}
 
 	item := second.Items[0]
-	if item.MIME != "image/jpeg" || item.ConfirmedAt != 1000 || item.OriginalURL != "/m/o/name_"+idA+".jpg" {
+	if item.MIME != "image/jpeg" || item.ConfirmedAt != 1000 || item.OriginalURL == nil || *item.OriginalURL != "/m/o/name_"+idA+".jpg" {
 		t.Fatalf("item = %+v; want stored MIME, confirmation time and original URL", item)
 	}
 }

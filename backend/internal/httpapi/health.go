@@ -16,6 +16,7 @@ type handlerOptions struct {
 	admin              *adminOptions
 	throttle           *auth.LoginThrottle
 	moderator          mediaModerator
+	hiddenMedia        hiddenMediaSource
 }
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.

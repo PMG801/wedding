@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/PMG801/wedding/internal/auth"
+	"github.com/PMG801/wedding/internal/media"
 	"github.com/PMG801/wedding/internal/upload"
 )
 
@@ -129,5 +132,105 @@ func TestModerationHasNoDeleteRoute(t *testing.T) {
 	}
 	if len(moderator.calls) != 0 {
 		t.Fatalf("DELETE reached the store: %+v", moderator.calls)
+	}
+}
+
+type fakeHiddenMedia struct {
+	page    media.Page
+	err     error
+	cursors []string
+	limits  []int
+	preview string
+}
+
+func (f *fakeHiddenMedia) ListHidden(_ context.Context, cursor string, limit int) (media.Page, error) {
+	f.cursors, f.limits = append(f.cursors, cursor), append(f.limits, limit)
+	return f.page, f.err
+}
+
+func (f *fakeHiddenMedia) OpenHiddenPreview(_ context.Context, id, variant string) (*os.File, error) {
+	if f.preview == "" || id != moderatedID || variant != "t" {
+		return nil, media.ErrPreviewNotFound
+	}
+	return os.Open(f.preview)
+}
+
+func TestHiddenListingReturnsAdminPage(t *testing.T) {
+	thumb := "/api/admin/media/" + moderatedID + "/preview/t"
+	hidden := &fakeHiddenMedia{page: media.Page{Items: []media.Item{{ID: moderatedID, MIME: "image/jpeg", ConfirmedAt: 7, ThumbURL: &thumb}}}}
+	fx := newAdminFixture(t, nil, nil, WithHiddenMedia(hidden))
+	cookie := fx.adminCookie(t)
+
+	response := fx.do(adminRequest(http.MethodGet, "/api/admin/media?visibility=hidden&cursor=abc&limit=10", "", cookie))
+	want := `{"items":[{"id":"` + moderatedID + `","mime":"image/jpeg","confirmed_at":7,"original_url":null,"thumb_url":"` + thumb + `","detail_url":null}],"next_cursor":null}` + "\n"
+	if response.Code != http.StatusOK || response.Body.String() != want || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("listing = %d %q (%q); want 200 %q no-store", response.Code, response.Body.String(), response.Header().Get("Cache-Control"), want)
+	}
+	if len(hidden.cursors) != 1 || hidden.cursors[0] != "abc" || hidden.limits[0] != 10 {
+		t.Fatalf("calls = %v %v; want cursor abc, limit 10", hidden.cursors, hidden.limits)
+	}
+	if response := fx.do(adminRequest(http.MethodGet, "/api/admin/media?visibility=hidden", "", cookie)); response.Code != http.StatusOK || hidden.limits[1] != 50 {
+		t.Fatalf("default limit = %d, %v; want 200 and limit 50", response.Code, hidden.limits)
+	}
+}
+
+func TestHiddenListingRejectsInvalidQueriesAndGuests(t *testing.T) {
+	hidden := &fakeHiddenMedia{err: media.ErrInvalidCursor}
+	fx := newAdminFixture(t, nil, nil, WithHiddenMedia(hidden))
+	cookie := fx.adminCookie(t)
+	for query, want := range map[string]string{
+		"":                             "{\"error\":\"invalid_visibility\"}\n",
+		"?visibility=visible":          "{\"error\":\"invalid_visibility\"}\n",
+		"?visibility=hidden&limit=0":   "{\"error\":\"invalid_limit\"}\n",
+		"?visibility=hidden&limit=101": "{\"error\":\"invalid_limit\"}\n",
+		"?visibility=hidden&cursor=x":  "{\"error\":\"invalid_cursor\"}\n",
+	} {
+		response := fx.do(adminRequest(http.MethodGet, "/api/admin/media"+query, "", cookie))
+		if response.Code != http.StatusBadRequest || response.Body.String() != want {
+			t.Fatalf("%q = %d %q; want 400 %q", query, response.Code, response.Body.String(), want)
+		}
+	}
+	if len(hidden.cursors) != 1 {
+		t.Fatalf("invalid queries reached the store %d times; want only the cursor check", len(hidden.cursors))
+	}
+	guest := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	for _, path := range []string{"/api/admin/media?visibility=hidden", "/api/admin/media/" + moderatedID + "/preview/t"} {
+		if response := fx.do(adminRequest(http.MethodGet, path, "", guest)); response.Code != http.StatusUnauthorized {
+			t.Fatalf("guest %s = %d; want 401", path, response.Code)
+		}
+	}
+}
+
+func TestHiddenPreviewServesPrivateJPEGToAdminOnly(t *testing.T) {
+	preview := filepath.Join(t.TempDir(), "t.staged")
+	if err := os.WriteFile(preview, []byte("\xff\xd8\xffjpeg"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fx := newAdminFixture(t, nil, nil, WithHiddenMedia(&fakeHiddenMedia{preview: preview}))
+	cookie := fx.adminCookie(t)
+
+	response := fx.do(adminRequest(http.MethodGet, "/api/admin/media/"+moderatedID+"/preview/t", "", cookie))
+	if response.Code != http.StatusOK || response.Body.String() != "\xff\xd8\xffjpeg" {
+		t.Fatalf("preview = %d %q; want 200 JPEG", response.Code, response.Body.String())
+	}
+	for header, want := range map[string]string{"Content-Type": "image/jpeg", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"} {
+		if got := response.Header().Get(header); got != want {
+			t.Fatalf("%s = %q; want %q", header, got, want)
+		}
+	}
+	missing := fx.do(adminRequest(http.MethodGet, "/api/admin/media/"+moderatedID+"/preview/d", "", cookie))
+	if missing.Code != http.StatusNotFound || missing.Body.String() != "{\"error\":\"preview_not_found\"}\n" {
+		t.Fatalf("missing preview = %d %q; want 404 preview_not_found", missing.Code, missing.Body.String())
+	}
+}
+
+func TestHiddenRoutesAreUnavailableWithoutSource(t *testing.T) {
+	fx := newAdminFixture(t, nil, nil)
+	cookie := fx.adminCookie(t)
+	for _, path := range []string{"/api/admin/media?visibility=hidden", "/api/admin/media/" + moderatedID + "/preview/t"} {
+		response := fx.do(adminRequest(http.MethodGet, path, "", cookie))
+		if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"moderation_unavailable\"}\n" {
+			t.Fatalf("%s = %d %q; want 503 moderation_unavailable", path, response.Code, response.Body.String())
+		}
 	}
 }

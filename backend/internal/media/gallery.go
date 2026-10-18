@@ -25,7 +25,7 @@ type Item struct {
 	ID          string  `json:"id"`
 	MIME        string  `json:"mime"`
 	ConfirmedAt int64   `json:"confirmed_at"`
-	OriginalURL string  `json:"original_url"`
+	OriginalURL *string `json:"original_url"`
 	ThumbURL    *string `json:"thumb_url"`
 	DetailURL   *string `json:"detail_url"`
 }
@@ -39,6 +39,7 @@ type Page struct {
 type Gallery struct {
 	db         *sql.DB
 	derivedDir string
+	tmpDir     string
 }
 
 // NewGallery builds a gallery reader over initialized SQLite and storage paths.
@@ -46,18 +47,32 @@ func NewGallery(database *sql.DB, paths storage.Paths) (*Gallery, error) {
 	if database == nil || paths.Derived == "" {
 		return nil, errors.New("database and initialized storage paths are required")
 	}
-	return &Gallery{db: database, derivedDir: paths.Derived}, nil
+	return &Gallery{db: database, derivedDir: paths.Derived, tmpDir: paths.Tmp}, nil
 }
 
 // List returns up to limit visible media older than cursor, newest first.
 // Keyset pagination on (confirmed_at, id) keeps pages stable while new
 // uploads arrive.
 func (g *Gallery) List(ctx context.Context, cursor string, limit int) (Page, error) {
+	return g.list(ctx, "visible", cursor, limit, func(item *Item, storageName string) error {
+		original := "/m/o/" + storageName
+		item.OriginalURL = &original
+		var err error
+		if item.ThumbURL, err = g.derivativeURL(item.ID, "t"); err != nil {
+			return err
+		}
+		item.DetailURL, err = g.derivativeURL(item.ID, "d")
+		return err
+	})
+}
+
+// list pages media of one visibility; urls fills each item's URLs.
+func (g *Gallery) list(ctx context.Context, visibility, cursor string, limit int, urls func(*Item, string) error) (Page, error) {
 	if limit <= 0 {
 		return Page{}, errors.New("gallery limit must be positive")
 	}
-	query := "SELECT id, storage_name, media_type, confirmed_at FROM media WHERE visibility = 'visible'"
-	args := []any{}
+	query := "SELECT id, storage_name, media_type, confirmed_at FROM media WHERE visibility = ?"
+	args := []any{visibility}
 	if cursor != "" {
 		confirmedAt, id, err := decodeCursor(cursor)
 		if err != nil {
@@ -76,14 +91,15 @@ func (g *Gallery) List(ctx context.Context, cursor string, limit int) (Page, err
 	defer func() { _ = rows.Close() }()
 
 	page := Page{Items: []Item{}}
+	var storageNames []string
 	for rows.Next() {
 		var item Item
 		var storageName string
 		if err := rows.Scan(&item.ID, &storageName, &item.MIME, &item.ConfirmedAt); err != nil {
 			return Page{}, fmt.Errorf("read gallery row: %w", err)
 		}
-		item.OriginalURL = "/m/o/" + storageName
 		page.Items = append(page.Items, item)
+		storageNames = append(storageNames, storageName)
 	}
 	if err := rows.Err(); err != nil {
 		return Page{}, fmt.Errorf("read gallery rows: %w", err)
@@ -95,10 +111,7 @@ func (g *Gallery) List(ctx context.Context, cursor string, limit int) (Page, err
 		page.NextCursor = &next
 	}
 	for i := range page.Items {
-		if page.Items[i].ThumbURL, err = g.derivativeURL(page.Items[i].ID, "t"); err != nil {
-			return Page{}, err
-		}
-		if page.Items[i].DetailURL, err = g.derivativeURL(page.Items[i].ID, "d"); err != nil {
+		if err := urls(&page.Items[i], storageNames[i]); err != nil {
 			return Page{}, err
 		}
 	}

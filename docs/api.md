@@ -192,6 +192,12 @@ Exige la sesión de administrador. Oculta o vuelve a mostrar un medio confirmado
 
 Exige la sesión de administrador. Lista los medios ocultos con la misma página y el mismo cursor que `GET /api/media` (más recientes primero). `visibility` es obligatorio y por ahora solo acepta `hidden` (`400 {"error":"invalid_visibility"}` en otro caso). Como `hidden/` y `tmp/` no se sirven, `original_url` vale `null` y `thumb_url`/`detail_url` apuntan a `GET /api/admin/media/{id}/preview/{t|d}`, servida por la aplicación tras la sesión de administrador; valen `null` si la variante no existe.
 
+Errores del listado: `400` con `{"error":"invalid_visibility"}`, `{"error":"invalid_limit"}` (fuera de 1 a 100) o `{"error":"invalid_cursor"}`; `401 admin_session_required`; `500 gallery_failed`; `503 moderation_unavailable`.
+
+### `GET /api/admin/media/{id}/preview/{t|d}` — vista previa de un medio oculto
+
+Exige la sesión de administrador. Devuelve el derivado JPEG privado de un medio **oculto** con `Content-Type: image/jpeg`, `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`; admite `Range`. Un medio visible, inexistente o sin esa variante responde `404 {"error":"preview_not_found"}` (los visibles se ven por `/m/d/`). Otros errores: `401 admin_session_required`, `500 preview_failed`, `503 moderation_unavailable`.
+
 ### `POST /api/admin/settings` — ajustes
 
 Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manual de subidas se guarda en SQLite y puede cambiarse en marcha. El material entregado no define el esquema del cuerpo ni la respuesta de este endpoint.

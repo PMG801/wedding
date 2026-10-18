@@ -91,7 +91,8 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
-		httpapi.WithModeration(photos)), nil
+		httpapi.WithModeration(photos),
+		httpapi.WithHiddenMedia(gallery)), nil
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk
