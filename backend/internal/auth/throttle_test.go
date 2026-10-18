@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -66,5 +67,54 @@ func TestLoginThrottleHonoursElapsedTime(t *testing.T) {
 	clock.now = clock.now.Add(5 * time.Second)
 	if err := throttle.Wait(context.Background()); err != nil || len(clock.sleeps) != 0 {
 		t.Fatalf("Wait() after the delay elapsed slept %v; want none", clock.sleeps)
+	}
+}
+
+func TestLoginThrottleAttemptSerializesConcurrentVerifications(t *testing.T) {
+	throttle := NewLoginThrottle(ThrottleOptions{Base: time.Millisecond, Max: time.Millisecond})
+	var mu sync.Mutex
+	active, maxActive, calls := 0, 0, 0
+	verify := func() bool {
+		mu.Lock()
+		active++
+		calls++
+		maxActive = max(maxActive, active)
+		mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+		mu.Lock()
+		active--
+		mu.Unlock()
+		return false
+	}
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, err := throttle.Attempt(context.Background(), verify); ok || err != nil {
+				t.Errorf("Attempt() = %v, %v; want false, nil", ok, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if calls != 5 || maxActive != 1 {
+		t.Fatalf("verifications = %d, max concurrent = %d; want 5 sequential", calls, maxActive)
+	}
+}
+
+func TestLoginThrottleAttemptDelaysAfterFailureAndResetsOnSuccess(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
+	throttle := NewLoginThrottle(ThrottleOptions{Now: clock.Now, Sleep: clock.Sleep})
+	if ok, _ := throttle.Attempt(context.Background(), func() bool { return false }); ok {
+		t.Fatal("failed verification reported success")
+	}
+	if ok, _ := throttle.Attempt(context.Background(), func() bool { return true }); !ok {
+		t.Fatal("successful verification reported failure")
+	}
+	if ok, _ := throttle.Attempt(context.Background(), func() bool { return true }); !ok {
+		t.Fatal("successful verification reported failure")
+	}
+	if len(clock.sleeps) != 1 || clock.sleeps[0] != time.Second {
+		t.Fatalf("sleeps = %v; want one 1s delay after the failure only", clock.sleeps)
 	}
 }

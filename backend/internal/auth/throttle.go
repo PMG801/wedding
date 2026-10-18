@@ -24,6 +24,7 @@ type ThrottleOptions struct {
 // Each failure doubles the delay applied before the next attempt, up to Max;
 // a success resets it.
 type LoginThrottle struct {
+	attempt      sync.Mutex // one wait-verify-record cycle at a time
 	mu           sync.Mutex
 	now          func() time.Time
 	sleep        func(context.Context, time.Duration) error
@@ -48,6 +49,25 @@ func NewLoginThrottle(options ThrottleOptions) *LoginThrottle {
 		throttle.max = defaultThrottleMax
 	}
 	return throttle
+}
+
+// Attempt runs one login attempt: it waits out any delay left by earlier
+// failures, verifies, and records the outcome, holding a lock for the whole
+// cycle. Serializing makes the delay apply to every guess, including
+// concurrent ones, and bounds password hashing (argon2id or bcrypt) to one
+// verification at a time on a small host.
+func (t *LoginThrottle) Attempt(ctx context.Context, verify func() bool) (bool, error) {
+	t.attempt.Lock()
+	defer t.attempt.Unlock()
+	if err := t.Wait(ctx); err != nil {
+		return false, err
+	}
+	if !verify() {
+		t.RecordFailure()
+		return false, nil
+	}
+	t.RecordSuccess()
+	return true, nil
 }
 
 // Wait blocks until any delay left by earlier failures has passed.

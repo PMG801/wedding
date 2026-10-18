@@ -57,11 +57,14 @@ func (s *Store) DiskUsage() (DiskUsage, error) {
 func (s *Store) reserve(declaredSize int64) (*reservation, error) {
 	s.ledger.mu.Lock()
 	defer s.ledger.mu.Unlock()
+	// Read the reservations before statfs: bytes written in between then count
+	// twice (conservative) instead of not at all.
+	reserved := uint64(max(s.ledger.reserved.Load(), 0))
 	free, err := s.free()
 	if err != nil {
 		return nil, err
 	}
-	need := uint64(max(s.ledger.reserved.Load(), 0)) + uint64(declaredSize)
+	need := reserved + uint64(declaredSize)
 	if free < s.options.MinFreeBytes || need > free-s.options.MinFreeBytes {
 		return nil, ErrInsufficientStorage
 	}

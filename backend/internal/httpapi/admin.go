@@ -97,16 +97,14 @@ func adminLoginHandler(sessionKey []byte, passwordHash string, throttle *auth.Lo
 			writeUploadError(w, http.StatusBadRequest, "invalid_request")
 			return
 		}
-		// Waiting before verifying makes failed guesses slower, including concurrent ones.
-		if err := throttle.Wait(r.Context()); err != nil {
+		ok, err := throttle.Attempt(r.Context(), func() bool { return auth.VerifyAdminPassword(passwordHash, body.Password) })
+		if err != nil {
 			return
 		}
-		if !auth.VerifyAdminPassword(passwordHash, body.Password) {
-			throttle.RecordFailure()
+		if !ok {
 			writeUploadError(w, http.StatusUnauthorized, "invalid_credentials")
 			return
 		}
-		throttle.RecordSuccess()
 		http.SetCookie(w, auth.NewAdminCookie(sessionKey, time.Now()))
 		w.WriteHeader(http.StatusNoContent)
 	})
