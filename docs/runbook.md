@@ -280,6 +280,15 @@ Notas de operación:
 - Rotar `BODA_SESSION_KEY` invalida a la vez las sesiones de invitados y de administrador.
 - Prueba el interruptor desde el móvil del administrador en el ensayo general (T9).
 
+## «Me gusta» y «Más gustadas»
+
+Cada invitado puede marcar fotos y vídeos con un corazón, en la cuadrícula y en el visor. «Más gustadas» muestra los 50 medios visibles con más «me gusta» (al menos uno); «Recientes» sigue siendo la galería cronológica (ADR-0012).
+
+- Los «me gusta» y su recuento se guardan en SQLite (`media_likes` y `media.like_count`): sobreviven a reinicios y entran en la copia de seguridad de la base. No hay ninguna caché que reiniciar.
+- Cada cookie de invitado es un votante. El mismo navegador no puede votar dos veces el mismo medio, ni volviendo a escanear el QR; otro navegador, otro dispositivo, borrar la caché o la caducidad de la cookie (30 días) sí permiten votar de nuevo. Se acepta.
+- Rotar `BODA_SESSION_KEY` crea identidades nuevas para todos: los invitados podrían volver a votar lo que ya votaron. Evítalo durante el evento.
+- Ocultar un medio lo quita del ranking y bloquea sus «me gusta», pero no los borra: al mostrarlo de nuevo recupera su recuento.
+
 ## Comportamiento de la subida en el cliente
 
 - Si una subida no recibe progreso durante 60 segundos, el cliente la aborta y la reintenta. No hay plazo total: un vídeo grande puede tardar lo que haga falta mientras siga avanzando.

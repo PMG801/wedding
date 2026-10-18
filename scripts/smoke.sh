@@ -263,3 +263,45 @@ if [[ "$(moderate visible)" != 200 || "$(media_status)" != 200 ]]; then
   exit 1
 fi
 echo 'Admin moderation hide, hidden listing, no delete and show passed.'
+
+# Likes: one like per guest cookie, idempotent, a second guest counts apart, and counts survive a restart.
+like() {
+  curl -sS -w ' %{http_code}' -X "$1" -H "Cookie: $2" "$smoke_base_url/api/media/$smoke_photo_id/like"
+}
+second_guest_cookie="$(curl -sS -o /dev/null -D - "$smoke_base_url/e/$smoke_event_token" |
+  awk 'tolower($1) == "set-cookie:" && $2 ~ /^guest_session=/ { sub(/;.*/, "", $2); print $2; exit }')"
+if [[ -z "$second_guest_cookie" ]]; then
+  echo 'A second guest QR entry did not set a guest session cookie.' >&2
+  exit 1
+fi
+first_like="$(like PUT "$guest_cookie")"
+repeated_like="$(like PUT "$guest_cookie")"
+second_like="$(like PUT "$second_guest_cookie")"
+if [[ "$first_like" != *'"like_count":1,"liked_by_me":true}'*' 200' ||
+  "$repeated_like" != *'"like_count":1,"liked_by_me":true}'*' 200' ||
+  "$second_like" != *'"like_count":2,"liked_by_me":true}'*' 200' ]]; then
+  echo "Likes did not count once per guest: $first_like | $repeated_like | $second_like" >&2
+  exit 1
+fi
+top_response="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media/top")"
+if [[ "$top_response" != '{"items":[{"id":"'"$smoke_photo_id"'"'* || "$top_response" != *'"like_count":2,"liked_by_me":true}]}'* ]]; then
+  echo "The top ranking does not list only the liked photo with two likes: $top_response" >&2
+  exit 1
+fi
+if [[ "$(moderate hidden)" != 200 || "$(like PUT "$guest_cookie")" != *' 404' ||
+  "$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media/top")" != '{"items":[]}' ||
+  "$(moderate visible)" != 200 ]]; then
+  echo 'A hidden photo could still be liked or stayed in the ranking.' >&2
+  exit 1
+fi
+docker compose restart app >/dev/null
+for _ in $(seq 1 60); do
+  curl -fsS "$smoke_base_url/api/health" >/dev/null 2>&1 && break
+  sleep 1
+done
+unliked="$(like DELETE "$second_guest_cookie")"
+if [[ "$unliked" != *'"like_count":1,"liked_by_me":false}'*' 200' ]]; then
+  echo "Likes did not survive a restart or unlike failed: $unliked" >&2
+  exit 1
+fi
+echo 'Likes per guest, ranking, hidden exclusion and persistence across restart passed.'
