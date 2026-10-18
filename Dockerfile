@@ -45,3 +45,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/usr
 FROM caddy:${CADDY_VERSION}-alpine AS web
 COPY --from=frontend-build /app/frontend/dist /srv
 COPY deploy/caddy/Caddyfile /etc/caddy/Caddyfile
+# Run Caddy as the same unprivileged UID as the app (65532). The binary keeps
+# cap_net_bind_service so it can still bind 80/443; the build fails if it does not.
+# /data and /config are owned by that UID so fresh named volumes inherit it.
+RUN setcap cap_net_bind_service=+ep /usr/bin/caddy \
+ && getcap /usr/bin/caddy | grep -q cap_net_bind_service \
+ && mkdir -p /data /config \
+ && chown -R 65532:65532 /data /config
+USER 65532:65532

@@ -1,3 +1,9 @@
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
     build:
@@ -6,6 +12,16 @@ services:
     command: ["serve"]
     env_file:
       - ${BODA_ENV_FILE:-.env}
+    environment:
+      # Soft heap target below mem_limit: the GC works harder before the
+      # container hits the cgroup limit (see docs/runbook.md).
+      GOMEMLIMIT: 512MiB
+    mem_limit: 1g
+    logging: *json-logging
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     expose:
       - "8080"
     volumes:
@@ -28,6 +44,20 @@ services:
         condition: service_healthy
     environment:
       BODA_DOMAIN: ${BODA_DOMAIN:-:80}
+    mem_limit: 512m
+    logging: *json-logging
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      # Caddy's admin API listens on 127.0.0.1:2019 inside the container; a 200
+      # from /config/ means the process is up and has loaded its configuration.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     ports:
       - "8081:80"
     volumes:

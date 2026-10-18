@@ -21,17 +21,74 @@ curl -fsS http://localhost:8081/ | head
 
 Todo el despliegue vive en `/srv/boda` y su fuente de verdad es `deploy/server/` del repositorio. El servidor no compila nada: descarga de GHCR las imágenes `boda-app` y `boda-web` con la etiqueta `rc`, que CI publica en cada push a `main` (se puede fijar otra con `BODA_TAG`).
 
-Preparación única (requiere Docker Engine y el plugin de Compose instalados):
+### Aprovisionamiento del host (una vez)
+
+Hazlo antes del primer despliegue. Requiere SSH con `sudo`.
+
+1. **Consola de OCI:** en la security list (o NSG) de la subred de la instancia, añade un ingreso TCP **80** y **443** desde `0.0.0.0/0`. El cortafuegos del host no basta por sí solo: las imágenes de Ubuntu y Oracle Linux en OCI traen reglas de `iptables` restrictivas.
+2. **Copia de archivos:**
 
 ```sh
 sudo install -d -o "$USER" -g "$USER" /srv/boda
-scp deploy/server/{compose.yaml,deploy.sh,bootstrap.sh} <servidor>:/srv/boda/
-ssh <servidor> 'cd /srv/boda && ./bootstrap.sh'
+scp deploy/server/{compose.yaml,deploy.sh,bootstrap.sh,provision-host.sh} <servidor>:/srv/boda/
+```
+
+3. **Provisión del host.** Es opcional y repetible: `--dry-run` solo imprime el plan.
+
+```sh
+ssh <servidor>
+cd /srv/boda
+sudo ./provision-host.sh --dry-run
+sudo ./provision-host.sh
+```
+
+Cada paso comprueba antes el estado actual y no repite lo que ya está hecho:
+
+- Instala Docker Engine y el plugin de Compose si faltan. En Ubuntu usa el script oficial `get.docker.com`. En Oracle Linux hay que instalar Docker antes desde el repositorio de Docker; el script se detiene si no lo encuentra.
+- Habilita y arranca `docker`.
+- Abre TCP 80 y 443 en `INPUT` antes de la regla `REJECT` y guarda las reglas en `/etc/iptables/rules.v4` (con `netfilter-persistent`; en Oracle Linux, en `/etc/sysconfig/iptables`). Si `firewalld` está activo, el script se detiene y muestra los comandos equivalentes.
+- Crea `/swapfile` de 2 GB y lo añade a `/etc/fstab`, solo si el host no tiene swap activa.
+- Fija `vm.swappiness = 10` en `/etc/sysctl.d/99-boda.conf`.
+- Activa las actualizaciones de seguridad automáticas (`unattended-upgrades`; en Oracle Linux, `dnf-automatic`) y la sincronización horaria.
+
+Si el volumen de bloque de 200 GB va a ser la raíz de datos, adjúntalo en la consola de OCI, averigua su ruta con `lsblk` y pásala al script. Se monta en `/srv/boda/data` por UUID en `/etc/fstab`, con `nofail,_netdev`:
+
+```sh
+sudo ./provision-host.sh --data-device /dev/sdb
+```
+
+- Si el dispositivo no tiene sistema de archivos, el script se detiene. Solo lo formatea (ext4) si añades `--format-data-device`, **lo que borra todo el dispositivo**. No lo uses en un dispositivo con datos.
+- Ejecuta este paso **antes** de `bootstrap.sh`: el montaje se niega si `/srv/boda/data` ya contiene archivos.
+- `deploy.sh` se niega a arrancar si `/srv/boda/data` figura en `/etc/fstab` y no está montado, para no escribir en el disco del sistema.
+
+4. **Docker sin `sudo`:** `bootstrap.sh` y `deploy.sh` llaman a Docker sin `sudo`, así que el operador debe estar en el grupo `docker`: `sudo usermod -aG docker <operador>`, y volver a entrar por SSH. Ese grupo equivale a root en el host; es una decisión del operador.
+5. **Directorios y secretos:**
+
+```sh
+cd /srv/boda && ./bootstrap.sh
 ```
 
 `bootstrap.sh` crea `data/` (propiedad del UID `65532`, modo `0700`) y genera un `.env` con permisos `600` y secretos aleatorios, más `.admin-password`. Es idempotente: nunca sobrescribe un `.env` existente. Ninguno de los dos archivos está en Git.
 
 Para desplegar o actualizar: `cd /srv/boda && ./deploy.sh` (hace `docker compose pull` y `up -d`).
+
+### Registros, memoria y usuario de Caddy
+
+- **Registros:** ambos servicios usan `json-file` con `max-size: 10m` y `max-file: 3`: como mucho 30 MB por contenedor. Comparten disco con los datos.
+- **Memoria:** `app` tiene un límite de 1 GiB y `GOMEMLIMIT=512MiB`, un objetivo blando que hace trabajar más al recolector de Go antes de llegar al límite. `web` tiene 512 MiB. Para medirlo durante una carga: `docker stats --no-stream`.
+- **Descriptores:** `nofile` 65536 en ambos servicios.
+- **Healthcheck de `web`:** consulta la API de administración de Caddy dentro del contenedor (`127.0.0.1:2019/config/`). `docker compose ps` debe mostrar `healthy`.
+- **Caddy sin root:** corre como UID `65532`, el mismo que `app`. Conserva `cap_net_bind_service` para escuchar en 80 y 443, y sus volúmenes `caddy-data` y `caddy-config` pertenecen a ese UID. Un volumen creado por una versión anterior (con root) hay que corregirlo una vez, con los servicios parados:
+
+```sh
+cd /srv/boda && docker compose down
+docker run --rm --user root --entrypoint sh \
+  -v boda_caddy-data:/data -v boda_caddy-config:/config \
+  ghcr.io/pmg801/boda-web:rc -c 'chown -R 65532:65532 /data /config'
+docker compose up -d
+```
+
+`docker compose down` sin `-v` conserva los volúmenes y los certificados.
 
 Por defecto la web solo escucha en loopback del servidor: HTTP en `127.0.0.1:8081` (`BODA_HTTP_PORT`) y HTTPS en `127.0.0.1:8443` (`BODA_HTTPS_PORT`, `BODA_HTTPS_BIND`). Se accede con un túnel SSH, porque la cookie `Secure` solo se acepta en HTTPS o en `localhost`:
 
@@ -40,7 +97,7 @@ ssh -L 8081:127.0.0.1:8081 <servidor>
 # QR de prueba: http://localhost:8081/e/<BODA_EVENT_TOKEN>
 ```
 
-Para publicar solo con la IP (fase de pruebas, sin dominio): define en `.env` `BODA_DOMAIN=<IP pública>`, `BODA_HTTPS_BIND=0.0.0.0` y `BODA_HTTPS_PORT=443`. Caddy emite entonces un certificado de su CA local para esa IP (válido unas 12 horas y renovado automáticamente), así que cada dispositivo muestra un aviso de certificado no confiable que hay que aceptar; sin HTTPS la cookie `Secure` no se guarda. Hay que abrir únicamente el puerto TCP 443, tanto en el firewall del host (`/etc/iptables/rules.v4`) como en la security list de la nube; el 80 no hace falta. Con dominio real, basta con poner `BODA_DOMAIN=<dominio>` y Caddy obtendrá un certificado de Let's Encrypt (en ese caso sí necesita el 80 o el 443 accesibles para la validación).
+Para publicar solo con la IP (fase de pruebas, sin dominio): define en `.env` `BODA_DOMAIN=<IP pública>`, `BODA_HTTPS_BIND=0.0.0.0` y `BODA_HTTPS_PORT=443`. Caddy emite entonces un certificado de su CA local para esa IP (válido unas 12 horas y renovado automáticamente), así que cada dispositivo muestra un aviso de certificado no confiable que hay que aceptar; sin HTTPS la cookie `Secure` no se guarda. Hay que abrir TCP 80 y 443, tanto en el firewall del host (lo hace `provision-host.sh`) como en la security list de la nube. Para que el 80 sea público en esta fase, define además `BODA_HTTP_BIND=0.0.0.0` y `BODA_HTTP_PORT=80`; pero con la IP en `BODA_DOMAIN` el 80 solo redirige a HTTPS; no expongas el 80 sin definir antes `BODA_DOMAIN`, porque sin él la web responde en claro. Con dominio real, basta con poner `BODA_DOMAIN=<dominio>` y Caddy obtendrá un certificado de Let's Encrypt (en ese caso sí necesita el 80 o el 443 accesibles para la validación).
 
 ## Integración continua
 
@@ -165,12 +222,31 @@ Cada pasada deja en el log una línea `reconciled upload storage` con los recuen
 
 La entrega se hace al terminar mediante un `rsync` por SSH a un disco externo; la aplicación no interviene. El operador copia `originals/`, y copia `hidden/` solo si se pide. La copia de SQLite no forma parte de la entrega a los novios. Se puede hacer un `rsync` incremental la noche del evento para acortar la copia final. Los archivos no cambian y los temporales están aparte, por lo que el `rsync` es seguro con la aplicación en marcha. `quarantine/` se revisa a mano antes del `rsync` final.
 
-**No se ha incluido en la fuente un comando `rsync` ejecutable** ni los valores de host, usuario, rutas de destino o puerto SSH; no se inventan aquí.
+**Comando de entrega.** Se ejecuta desde tu equipo o el disco de destino, no en el servidor. `data/` pertenece al UID `65532` y tiene modo `0700`, así que el `rsync` del servidor usa `sudo`:
 
-## Pendientes de operación indicados, pero no desarrollados en la fuente
+```sh
+rsync -a --info=progress2 --rsync-path='sudo rsync' \
+  <operador>@<servidor>:/srv/boda/data/originals/ <disco>/originals/
+```
 
-- **Oracle Always Free:** la solicitud original requiere una advertencia sobre inactividad de CPU. La definición técnica aportada no especifica la política aplicable ni un procedimiento de mitigación; hay que completar y verificarlo antes del despliegue.
-- **Ampliación del volumen:** la definición indica que el volumen de 200 GB se ampliará a más de 500 GB y que se debe preparar y probar la semana anterior. El árbol menciona `deploy/host/volume-resize.md` como destino para el procedimiento (consola, partición y sistema de archivos), pero esos pasos no están incluidos en el material entregado.
+- Sin `--partial`: un archivo interrumpido se descarta en vez de quedar con su nombre final. Para reanudar, vuelve a lanzar el mismo comando.
+- Sin `--delete`: el `rsync` nunca borra nada del destino.
+- Para copiar también `hidden/`, repite el comando con `data/hidden/` y `<disco>/hidden/`.
+- `sudo` no puede pedir contraseña en una sesión SSH sin terminal, así que en el servidor hace falta una regla limitada, creada una vez con `sudo visudo -f /etc/sudoers.d/boda-rsync`:
+
+```text
+<operador> ALL=(root) NOPASSWD: /usr/bin/rsync --server --sender *
+```
+
+  Comprueba la sintaxis con `sudo visudo -cf /etc/sudoers.d/boda-rsync`. La regla solo permite el modo de envío de `rsync`, pero como root ese modo lee cualquier archivo del servidor: trátala como una credencial de administración.
+
+## Pendientes de operación (gestionados a mano por el operador, L2)
+
+El repositorio no los automatiza. El operador los prepara y prueba antes del evento, según la decisión L2:
+
+- **Oracle Always Free (reclamación por inactividad):** la política de inactividad de la instancia y su mitigación se gestionan en la consola de OCI. Verifícalas antes del despliegue.
+- **Ampliación del volumen (200 GB a más de 500 GB):** se hace a mano la semana anterior, con los pasos de consola, partición y sistema de archivos. `deploy/host/` solo contiene un marcador; no hay procedimiento en el repositorio.
+- **Versión estable y rollback:** el pinning de `BODA_TAG` y la vuelta atrás también los gestiona el operador.
 
 ## Arranque local (sin Docker)
 

@@ -100,8 +100,12 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 - `web` (Caddy):
   - Monta en **solo lectura** `originals/` y `derived/`, y nada más.
   - Guarda sus certificados en un volumen propio, fuera de `/srv/evento`.
-- Rotación de logs de Docker (`max-size` y `max-file`) en ambos servicios, porque comparten disco con los datos.
-- `restart: unless-stopped` y un healthcheck que llama a `boda check`.
+  - Corre como UID `65532`, no como root. Conserva `cap_net_bind_service` para escuchar en 80 y 443, y sus volúmenes son de ese UID.
+  - Healthcheck contra la API de administración de Caddy (`127.0.0.1:2019/config/`).
+- Rotación de logs de Docker (`max-size: 10m`, `max-file: 3`) en ambos servicios, porque comparten disco con los datos.
+- Límites de memoria: `app` 1 GiB con `GOMEMLIMIT=512MiB`; `web` 512 MiB. Descriptores (`nofile`) 65536.
+- `restart: unless-stopped`. El servicio `app` tiene un healthcheck que llama a `boda check`.
+- Aprovisionamiento del host, opcional e idempotente: `deploy/server/provision-host.sh` (Docker, 80 y 443 en el cortafuegos, swap, volumen de datos opcional). Ver `runbook.md`.
 
 **Dockerfile multietapa con buildx:**
 1. **Etapa `frontend`:** Node en la plataforma del equipo que compila (`$BUILDPLATFORM`) genera `dist/`. El resultado es igual en cualquier arquitectura, así que no hace falta emulación.
