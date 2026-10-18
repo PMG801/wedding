@@ -171,7 +171,25 @@ Los sirve Caddy, no la aplicación (ADR-0006 y ADR-0011). Exigen la sesión de i
 
 ### `PATCH /api/admin/media/{id}` — moderación
 
-Las rutas `/api/admin/*` exigen la sesión de administrador. Ocultar un medio mueve el archivo a `hidden/` (no servido) y actualiza su estado en SQLite; su URL da 404 al instante. La aplicación permite al administrador ver los elementos ocultos. El cuerpo exacto para ocultar/mostrar y los códigos de respuesta no se especifican en la fuente.
+Exige la sesión de administrador. Oculta o vuelve a mostrar un medio confirmado. **No existe ninguna operación de borrado**, ni siquiera para el administrador: ocultar es la forma de retirar contenido y siempre es reversible. El cuerpo JSON (como máximo 1 KiB) tiene exactamente un campo:
+
+```json
+{"visibility":"hidden"}
+```
+
+`visibility` vale `hidden` o `visible`. Ocultar mueve el original a `hidden/` (no servido) y sus derivados publicados a `tmp/` como variantes privadas, y después marca la fila como `hidden`: su URL da 404 al instante y desaparece de la galería. Mostrar hace lo contrario y vuelve a publicar los derivados. La operación es idempotente: ocultar algo ya oculto, o mostrar algo visible, responde `200` sin cambiar nada.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | `{"id":"<uuid>","visibility":"hidden"}` con el estado final. |
+| `400 Bad Request` | Cuerpo que no es JSON, con campos desconocidos o con un valor distinto de `hidden` o `visible` (`{"error":"invalid_visibility"}`). |
+| `401 Unauthorized` | Sin sesión de administrador (`{"error":"admin_session_required"}`). |
+| `404 Not Found` | No existe un medio confirmado con ese identificador (`{"error":"media_not_found"}`). |
+| `500 Internal Server Error` | Fallo al mover archivos o al actualizar SQLite; lo ya movido se deshace (`{"error":"moderation_failed"}`). |
+
+### `GET /api/admin/media?visibility=hidden&cursor=<opaco>&limit=50` — medios ocultos
+
+Exige la sesión de administrador. Lista los medios ocultos con la misma página y el mismo cursor que `GET /api/media` (más recientes primero). `visibility` es obligatorio y por ahora solo acepta `hidden` (`400 {"error":"invalid_visibility"}` en otro caso). Como `hidden/` y `tmp/` no se sirven, `original_url` vale `null` y `thumb_url`/`detail_url` apuntan a `GET /api/admin/media/{id}/preview/{t|d}`, servida por la aplicación tras la sesión de administrador; valen `null` si la variante no existe.
 
 ### `POST /api/admin/settings` — ajustes
 
@@ -186,7 +204,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 
 ## Información pendiente para completar el contrato
 
-El esquema de moderación (`PATCH /api/admin/media/{id}`) sigue pendiente de definición. Los endpoints de sesión de administrador (`login`, `logout`), `status` y `settings` están documentados arriba.
+Los endpoints de sesión de administrador (`login`, `logout`), `status`, `settings` y la moderación están documentados arriba.
 
 ### `GET /api/health` — estado del servicio
 
