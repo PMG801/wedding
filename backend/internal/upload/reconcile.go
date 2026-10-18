@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ReconcileReport counts what one reconciliation pass changed or skipped.
@@ -16,6 +17,7 @@ type ReconcileReport struct {
 	RemovedPartials     int
 	Quarantined         int
 	PromotedDerivatives int
+	RemovedStaged       int
 	SkippedActive       int
 }
 
@@ -86,8 +88,11 @@ func (s *Store) promoteStagedIfVisible(ctx context.Context, name string, report 
 	}
 	defer unlock()
 	original, err := s.confirmed(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && original.Visibility != "visible") {
-		// Unconfirmed or hidden originals keep their derivatives private.
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.removeExpiredStaged(name, report)
+	}
+	if err == nil && original.Visibility != "visible" {
+		// Hidden originals keep their derivatives private, ready to be shown again.
 		return nil
 	}
 	if err != nil {
@@ -97,6 +102,32 @@ func (s *Store) promoteStagedIfVisible(ctx context.Context, name string, report 
 		return fmt.Errorf("promote staged derivative %q: %w", name, err)
 	}
 	report.PromotedDerivatives++
+	return nil
+}
+
+// removeExpiredStaged deletes a staged derivative whose original was never
+// confirmed once it is older than StagedDerivativeTTL; derivatives need only a
+// guest session, so without a TTL abandoned ones would accumulate in tmp.
+// Callers hold the ID lock.
+func (s *Store) removeExpiredStaged(name string, report *ReconcileReport) error {
+	if s.options.StagedDerivativeTTL <= 0 {
+		return nil
+	}
+	path := filepath.Join(s.paths.Tmp, name)
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("inspect staged derivative %q: %w", name, err)
+	}
+	if time.Since(info.ModTime()) < s.options.StagedDerivativeTTL {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove expired staged derivative %q: %w", name, err)
+	}
+	report.RemovedStaged++
 	return nil
 }
 

@@ -25,6 +25,7 @@ var (
 	ErrMediaTooLarge       = errors.New("media exceeds the largest configured size limit")
 	ErrPhotoTooLarge       = errors.New("photo exceeds the configured size limit")
 	ErrVideoTooLarge       = errors.New("video exceeds the configured size limit")
+	ErrDerivativeTooLarge  = errors.New("derivative exceeds the configured size limit")
 )
 
 type PhotoType struct{ MIME, Extension string }
@@ -60,6 +61,11 @@ type Options struct {
 	MaxVideoBytes int64
 	MaxConcurrent int
 	MinFreeBytes  uint64
+	// MaxDerivativeBytes limits client-generated derivatives; zero means MaxBytes.
+	MaxDerivativeBytes int64
+	// StagedDerivativeTTL is how long reconciliation keeps a staged derivative
+	// whose original was never confirmed; zero keeps it forever.
+	StagedDerivativeTTL time.Duration
 }
 
 var videoBrands = map[string]PhotoType{

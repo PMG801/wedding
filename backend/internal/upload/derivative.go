@@ -13,6 +13,14 @@ import (
 
 var ErrInvalidDerivativeVariant = errors.New("derivative variant must be t or d")
 
+// MaxDerivativeBytes is the largest accepted derivative.
+func (s *Store) MaxDerivativeBytes() int64 {
+	if s.options.MaxDerivativeBytes > 0 {
+		return s.options.MaxDerivativeBytes
+	}
+	return s.options.MaxBytes
+}
+
 type Derivative struct {
 	ID, Variant      string
 	SizeBytes        int64
@@ -68,8 +76,11 @@ func (s *Store) SaveDerivative(ctx context.Context, id, variant string, declared
 		return Derivative{}, fmt.Errorf("inspect staged derivative: %w", err)
 	}
 
-	if declaredSize <= 0 || declaredSize > s.options.MaxBytes {
-		return Derivative{}, fmt.Errorf("declared derivative size must be between 1 and %d bytes", s.options.MaxBytes)
+	if declaredSize <= 0 {
+		return Derivative{}, errors.New("declared derivative size must be positive")
+	}
+	if declaredSize > s.MaxDerivativeBytes() {
+		return Derivative{}, ErrDerivativeTooLarge
 	}
 	select {
 	case s.semaphore <- struct{}{}:
