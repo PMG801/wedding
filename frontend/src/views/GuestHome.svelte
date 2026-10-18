@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import GalleryGrid from '../components/GalleryGrid.svelte'
   import PhotoDialog from '../components/PhotoDialog.svelte'
+  import PinnedSection from '../components/PinnedSection.svelte'
   import UploadPanel from '../components/UploadPanel.svelte'
   import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
   import { hasAdminSession } from '../lib/api/moderation'
@@ -94,6 +95,8 @@
   onRetry={(id) => queue.retry(id)}
   onDismissFinished={dismissFinished}
 />
+
+<PinnedSection onSessionLost={onSessionLost} />
 
 <GalleryGrid
   feed={gallery}

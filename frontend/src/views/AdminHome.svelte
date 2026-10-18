@@ -9,6 +9,7 @@
     type AdminStatus
   } from '../lib/api/admin'
   import HiddenMediaList from '../components/HiddenMediaList.svelte'
+  import PinnedEditor from '../components/PinnedEditor.svelte'
   import { canSubmitPassword, diskNotice, formatGigabytes, uploadsToggle } from '../lib/admin/view'
   import { adminCopy } from '../lib/i18n/admin'
 
@@ -137,6 +138,8 @@
       <dt>{adminCopy.disk.reserved}</dt>
       <dd>{formatGigabytes(status.reservedBytes)}</dd>
     </dl>
+
+    <PinnedEditor onSessionLost={expireSession} />
 
     <HiddenMediaList onSessionLost={expireSession} />
 
