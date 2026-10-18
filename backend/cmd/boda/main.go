@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PMG801/wedding/internal/backup"
 	"github.com/PMG801/wedding/internal/config"
 	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/httpapi"
@@ -88,7 +89,44 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
+		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos)), nil
+}
+
+// newPhotoStore builds the upload store with the configured limits, disk
+// reservation and staged-derivative retention.
+func newPhotoStore(database *sql.DB, cfg config.Config, paths storage.Paths) (*upload.Store, error) {
+	return upload.NewStore(database, paths, upload.Options{
+		MaxBytes:            cfg.MaxPhotoBytes,
+		MaxVideoBytes:       cfg.MaxVideoBytes,
+		MaxDerivativeBytes:  cfg.MaxDerivativeBytes,
+		StagedDerivativeTTL: cfg.StagedDerivativeTTL,
+		MaxConcurrent:       cfg.MaxConcurrentUploads,
+		MinFreeBytes:        uint64(cfg.DiskMinFreeBytes),
+	})
+}
+
+// newServer applies the connection limits: the per-read idle timeout protects
+// slow uploads, so ReadTimeout and WriteTimeout stay unset on purpose.
+func newServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
+}
+
+// backupOnce writes one SQLite backup and logs its path or the failure. A
+// failed backup never stops the server.
+func backupOnce(ctx context.Context, database *sql.DB, dir string, keep int, now time.Time) {
+	path, err := backup.Run(ctx, database, dir, keep, now)
+	if err != nil {
+		slog.Error("backup sqlite database", "path", path, "error", err)
+		return
+	}
+	slog.Info("backed up sqlite database", "path", path)
 }
 
 func runServe() (resultErr error) {
@@ -106,9 +144,7 @@ func runServe() (resultErr error) {
 		addr = ":8080"
 	}
 
-	photos, err := upload.NewStore(database, paths, upload.Options{
-		MaxBytes: cfg.MaxPhotoBytes, MaxVideoBytes: cfg.MaxVideoBytes, MaxConcurrent: cfg.MaxConcurrentUploads, MinFreeBytes: uint64(cfg.DiskMinFreeBytes),
-	})
+	photos, err := newPhotoStore(database, cfg, paths)
 	if err != nil {
 		return fmt.Errorf("initialize photo uploads: %w", err)
 	}
@@ -120,11 +156,7 @@ func runServe() (resultErr error) {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	server := newServer(addr, handler)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -135,7 +167,13 @@ func runServe() (resultErr error) {
 		}
 		slog.Info("reconciled upload storage",
 			"removed_partials", report.RemovedPartials, "quarantined", report.Quarantined,
-			"promoted_derivatives", report.PromotedDerivatives, "skipped_active", report.SkippedActive)
+			"promoted_derivatives", report.PromotedDerivatives, "removed_staged", report.RemovedStaged, "skipped_active", report.SkippedActive)
+	})
+
+	// The backup runs in the background so a slow copy never delays startup.
+	backupDir := filepath.Join(paths.Root, "backup")
+	go jobs.Every(ctx, cfg.BackupInterval, func(ctx context.Context) {
+		backupOnce(ctx, database, backupDir, cfg.BackupKeep, time.Now())
 	})
 
 	serverErr := make(chan error, 1)

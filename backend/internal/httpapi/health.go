@@ -11,14 +11,21 @@ import (
 type Option func(*handlerOptions)
 
 type handlerOptions struct {
-	maxVideoBytes int64
-	admin         *adminOptions
-	throttle      *auth.LoginThrottle
+	maxVideoBytes      int64
+	maxDerivativeBytes int64
+	admin              *adminOptions
+	throttle           *auth.LoginThrottle
 }
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
 func WithMaxVideoBytes(limit int64) Option {
 	return func(o *handlerOptions) { o.maxVideoBytes = limit }
+}
+
+// WithMaxDerivativeBytes sets the largest accepted derivative; when unset,
+// derivatives keep the photo limit.
+func WithMaxDerivativeBytes(limit int64) Option {
+	return func(o *handlerOptions) { o.maxDerivativeBytes = limit }
 }
 
 // NewHandler builds the HTTP handler for public and guest-session routes.
@@ -29,13 +36,17 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 	}
 	mux := http.NewServeMux()
 	capacity := newUploadCapacity(maxConcurrent)
+	maxDerivative := maxPhotoBytes
+	if options.maxDerivativeBytes > 0 {
+		maxDerivative = options.maxDerivativeBytes
+	}
 	var switches uploadSwitch
 	if options.admin != nil {
 		switches = options.admin.switches
 	}
 	mux.Handle("GET /e/{token}", guestEntryHandler(eventToken, sessionKey))
 	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, options.maxVideoBytes, idleTimeout))))
-	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxPhotoBytes, idleTimeout))))
+	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxDerivative, idleTimeout))))
 	registerAdminRoutes(mux, sessionKey, options)
 	mux.Handle("GET /api/media", auth.RequireGuestSession(sessionKey, newGalleryHandler(gallery)))
 	mux.Handle("GET /api/session", auth.RequireGuestSession(sessionKey, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

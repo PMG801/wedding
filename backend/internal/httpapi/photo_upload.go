@@ -104,6 +104,7 @@ func newPhotoUploadHandler(photos photoUploader, capacity chan struct{}, maxByte
 			return
 		}
 		if media.AlreadyConfirmed {
+			drainConfirmedBody(body, r.ContentLength)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -168,6 +169,8 @@ func newDerivativeUploadHandler(photos photoUploader, capacity chan struct{}, ma
 				writeUploadError(w, http.StatusInsufficientStorage, "insufficient_storage")
 			case errors.Is(err, upload.ErrUnsupportedPhoto):
 				writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_derivative_format")
+			case errors.Is(err, upload.ErrDerivativeTooLarge):
+				writeUploadError(w, http.StatusRequestEntityTooLarge, "derivative_too_large")
 			case errors.Is(err, upload.ErrPhotoSizeMismatch), errors.Is(err, io.ErrUnexpectedEOF):
 				writeUploadError(w, http.StatusBadRequest, "derivative_body_size_mismatch")
 			case errors.Is(err, errUploadIdleTimeout):
@@ -178,11 +181,21 @@ func newDerivativeUploadHandler(photos photoUploader, capacity chan struct{}, ma
 			return
 		}
 		if derivative.AlreadyConfirmed {
+			drainConfirmedBody(body, r.ContentLength)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
 	})
+}
+
+// drainConfirmedBody reads and discards the declared body of a retry whose
+// upload is already confirmed. Without it, Go closes the connection for bodies
+// above its 256 KiB post-handler discard limit, and the client sees a reset or
+// a truncated 200. The answer stays 200 even when draining fails: the stored
+// file is already confirmed, and a failed read simply closes the connection.
+func drainConfirmedBody(body io.Reader, declared int64) {
+	_, _ = io.CopyN(io.Discard, body, declared)
 }
 
 func writeUploadError(w http.ResponseWriter, status int, code string) {

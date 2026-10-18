@@ -20,7 +20,7 @@ Cuerpo JSON de como máximo 4 KiB, sin campos adicionales:
 
 La contraseña se compara con `BODA_ADMIN_PASSWORD_HASH` (bcrypt o argon2id) en tiempo constante.
 
-Retraso progresivo: tras cada fallo, el siguiente intento espera antes de verificarse, 1 s tras el primer fallo, 2 s tras el segundo, 4 s, y así hasta 30 s como máximo. Un acierto restablece el contador. El contador es global (no por IP) y vive solo en memoria, así que se reinicia con el proceso.
+Retraso progresivo: tras cada fallo, el siguiente intento espera antes de verificarse, 1 s tras el primer fallo, 2 s tras el segundo, 4 s, y así hasta 30 s como máximo. Un acierto restablece el contador. El contador es global (no por IP) y vive solo en memoria, así que se reinicia con el proceso. Los intentos se atienden de uno en uno (espera, verificación y registro), de modo que las peticiones concurrentes no esquivan el retraso y solo se calcula un hash de contraseña a la vez.
 
 | Estado | Significado y respuesta |
 | --- | --- |
@@ -81,21 +81,21 @@ Si el servidor arranca sin configuración de administración, las rutas `status`
 
 ### `POST /api/media/{id}/derived?variant=t|d` — versión derivada JPEG
 
-La ruta exige una cookie de sesión de invitado válida (`guest_session`) y un UUIDv4 canónico en minúsculas. Cada petición sube una variante JPEG en el cuerpo sin multipart: `variant=t` para la miniatura (unos 400 px) o `variant=d` para el detalle (unos 2.048 px). El cliente envía `Content-Type: image/jpeg` y un `Content-Length` positivo. El servidor valida la firma JPEG y aplica los mismos límites de tamaño (`BODA_MAX_PHOTO_BYTES`), concurrencia (`BODA_MAX_CONCURRENT_UPLOADS`), inactividad y espacio mínimo libre que a la subida del original.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`) y un UUIDv4 canónico en minúsculas. Cada petición sube una variante JPEG en el cuerpo sin multipart: `variant=t` para la miniatura (unos 400 px) o `variant=d` para el detalle (unos 2.048 px). El cliente envía `Content-Type: image/jpeg` y un `Content-Length` positivo. El servidor valida la firma JPEG y aplica su propio límite de tamaño, `BODA_MAX_DERIVATIVE_BYTES` (8 MiB por defecto), además de la concurrencia (`BODA_MAX_CONCURRENT_UPLOADS`), el plazo de inactividad y el espacio mínimo libre que a la subida del original. El límite de foto no se aplica a los derivados. Si el `Content-Length` declarado supera el límite, la respuesta llega antes de reservar capacidad y sin leer el cuerpo.
 
 Las variantes pueden subirse antes que el original. En ese caso quedan en almacenamiento privado y no se sirven ni aparecen en la galería; se publican al confirmar un original visible con el mismo ID. Una variante ya aceptada no se vuelve a escribir en un reintento. Si falta una variante, el cliente puede continuar con el fallback de original sin procesamiento en el servidor.
 
 | Estado | Significado y respuesta |
 | --- | --- |
 | `201 Created` | Derivado nuevo aceptado; cuerpo vacío. Si aún no existe el original, queda privado hasta su confirmación. |
-| `200 OK` | Reintento de un derivado ya aceptado; cuerpo vacío y sin reescritura. |
+| `200 OK` | Reintento de un derivado ya aceptado; cuerpo vacío y sin reescritura. El cuerpo declarado se lee y se descarta antes de responder, para que la conexión siga reutilizable. |
 | `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`), variante no admitida (`{"error":"invalid_derivative_variant"}`), cuerpo vacío (`{"error":"empty_derivative"}`) o tamaño real distinto del declarado (`{"error":"derivative_body_size_mismatch"}`). |
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `404 Not Found` | El medio existente está oculto (`{"error":"media_not_found"}`). |
 | `405 Method Not Allowed` | Método distinto de `POST`; el cuerpo es el texto estándar de `net/http`. |
 | `408 Request Timeout` | El cuerpo no recibe datos durante el plazo de inactividad configurado (`{"error":"upload_idle_timeout"}`). |
 | `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
-| `413 Request Entity Too Large` | El tamaño declarado supera el máximo configurado (`{"error":"derivative_too_large"}`). |
+| `413 Request Entity Too Large` | El tamaño declarado supera `BODA_MAX_DERIVATIVE_BYTES`; se responde antes de reservar capacidad y sin leer el cuerpo (`{"error":"derivative_too_large"}`). El almacenamiento aplica el mismo código si rechaza el tamaño. |
 | `415 Unsupported Media Type` | El tipo declarado no es `image/jpeg` o la firma no es JPEG (`{"error":"unsupported_derivative_format"}`). |
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `503 Service Unavailable` | Capacidad compartida de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`; si el servicio de derivados no está disponible, `{"error":"derivatives_unavailable"}`. |
@@ -104,14 +104,14 @@ Las variantes pueden subirse antes que el original. En ese caso quedan en almace
 
 ### `PUT /api/media/{id}` — original de foto o vídeo en streaming
 
-La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite depende del tipo detectado por firma: `BODA_MAX_PHOTO_BYTES` (50 MB por defecto) para JPEG, PNG, HEIC y HEIF, y `BODA_MAX_VIDEO_BYTES` (1,5 GB por defecto) para vídeo MP4/M4V y QuickTime MOV (marca principal `isom`, `iso2`, `mp41`, `mp42`, `avc1`, `M4V ` o `qt  `). No se transcodifica nada en el servidor. Los derivados (miniatura y detalle, también la portada de un vídeo) siguen usando el límite de foto.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite depende del tipo detectado por firma: `BODA_MAX_PHOTO_BYTES` (50 MB por defecto) para JPEG, PNG, HEIC y HEIF, y `BODA_MAX_VIDEO_BYTES` (1,5 GB por defecto) para vídeo MP4/M4V y QuickTime MOV (marca principal `isom`, `iso2`, `mp41`, `mp42`, `avc1`, `M4V ` o `qt  `). No se transcodifica nada en el servidor. Los derivados (miniatura y detalle, también la portada de un vídeo) tienen su propio límite, `BODA_MAX_DERIVATIVE_BYTES` (8 MiB por defecto), y no usan el de foto.
 
-Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (90 segundos por defecto), no un plazo total de subida. La aplicación escribe en `tmp/{id}.part`, valida firma y tamaño, sincroniza el archivo, lo renombra y confirma en SQLite. Un identificador ya confirmado devuelve el mismo éxito idempotente sin volver a escribir.
+Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (90 segundos por defecto), no un plazo total de subida. La aplicación escribe en `tmp/{id}.part`, valida firma y tamaño, sincroniza el archivo, lo renombra y confirma en SQLite. Un identificador ya confirmado devuelve el mismo éxito idempotente sin volver a escribir. En ese caso el servidor lee y descarta el cuerpo declarado antes de responder `200`, de modo que el cliente termina de enviarlo y la conexión persistente sigue utilizable; un reintento grande no provoca un corte de conexión ni un `502` a través de Caddy.
 
 | Estado | Significado y respuesta |
 | --- | --- |
 | `201 Created` | Foto nueva confirmada; cuerpo vacío. |
-| `200 OK` | Reintento de una foto ya confirmada; cuerpo vacío y sin reescritura. |
+| `200 OK` | Reintento de una foto ya confirmada; cuerpo vacío y sin reescritura. El cuerpo declarado se lee y se descarta antes de responder. |
 | `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`), cuerpo vacío (`{"error":"empty_photo"}`) o tamaño real distinto del declarado (`{"error":"photo_body_size_mismatch"}`). |
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `405 Method Not Allowed` | Método distinto de `PUT`; el cuerpo es el texto estándar de `net/http`. |

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/PMG801/wedding/internal/auth"
+	"github.com/PMG801/wedding/internal/db"
 	"github.com/PMG801/wedding/internal/media"
 	"github.com/PMG801/wedding/internal/upload"
 	"golang.org/x/crypto/bcrypt"
@@ -185,5 +187,92 @@ func TestAppHandlerWiresAdminSwitchIntoUploadsAndPersistsIt(t *testing.T) {
 	restarted.ServeHTTP(response, status)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"uploadsEnabled":false`) {
 		t.Fatalf("status after restart = %d %q; want uploadsEnabled false", response.Code, response.Body.String())
+	}
+}
+
+func TestBackupJobWritesCopyAndLogsItsPath(t *testing.T) {
+	logs := captureDefaultLogger(t)
+	ctx := context.Background()
+	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "boda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	dir := filepath.Join(t.TempDir(), "backup")
+
+	backupOnce(ctx, database, dir, 7, time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC))
+
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "boda-20260501T030000Z.db" {
+		t.Fatalf("backup directory = %v, %v; want one boda-20260501T030000Z.db copy", entries, err)
+	}
+	if !strings.Contains(logs.String(), "level=INFO") || !strings.Contains(logs.String(), "boda-20260501T030000Z.db") {
+		t.Errorf("success log = %q; want an INFO line with the backup path", logs.String())
+	}
+}
+
+func TestBackupJobLogsFailureWithoutPanicking(t *testing.T) {
+	logs := captureDefaultLogger(t)
+	ctx := context.Background()
+	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "boda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	dir := filepath.Join(t.TempDir(), "backup")
+
+	backupOnce(ctx, database, dir, 0, time.Now())
+
+	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "backup keep count must be positive") {
+		t.Errorf("failure log = %q; want an ERROR line with the cause", logs.String())
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("failed backup left directory state %v; want no copy written", err)
+	}
+}
+
+// captureDefaultLogger routes slog's default logger into a buffer for the test.
+func captureDefaultLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buffer bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buffer, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &buffer
+}
+
+func TestConfiguredDerivativeLimitReachesTheDerivativeRoute(t *testing.T) {
+	root := t.TempDir()
+	configureTestEnvironment(t, root)
+	t.Setenv("BODA_MAX_DERIVATIVE_BYTES", "10")
+	ctx := context.Background()
+	database, cfg, paths, err := initialize(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	photos, err := newPhotoStore(database, cfg, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := photos.MaxDerivativeBytes(); got != 10 {
+		t.Fatalf("store derivative limit = %d; want the configured 10", got)
+	}
+	gallery, err := media.NewGallery(database, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/media/123e4567-e89b-42d3-a456-426614174050/derived?variant=t", bytes.NewReader(make([]byte, 11)))
+	request.Header.Set("Content-Type", "image/jpeg")
+	request.AddCookie(auth.NewGuestCookie([]byte(cfg.SessionKey), time.Now()))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != "{\"error\":\"derivative_too_large\"}\n" {
+		t.Fatalf("11-byte derivative with 10-byte limit = %d %q; want 413 derivative_too_large", response.Code, response.Body.String())
 	}
 }
