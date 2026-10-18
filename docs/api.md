@@ -239,7 +239,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 ## Autenticación y límites comunes
 
 - El acceso de invitado se obtiene mediante el token QR convertido en cookie firmada; el token no permanece en la URL tras la redirección.
-- La cookie de invitado lleva un identificador anónimo `guest_id` firmado (ADR-0012). Una cookie válida de formato anterior se acepta y se sustituye en la respuesta por una con `guest_id` y la misma caducidad; volver a entrar por el QR con una cookie válida conserva su `guest_id`.
+- La cookie de invitado lleva un identificador anónimo `guest_id` firmado, generado al entrar por el QR (ADR-0012). Una cookie de formato anterior, sin `guest_id`, ya no es válida: responde `401` y el invitado vuelve a escanear el QR. Volver a entrar por el QR con una cookie válida conserva su `guest_id`.
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
 - La ruta de originales admite JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma.

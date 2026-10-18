@@ -19,9 +19,8 @@ const (
 
 	guestExpiryBytes = 8
 	guestIDBytes     = 16
-	// guestSessionDomain signs the legacy v1 payload: expiry only.
-	guestSessionDomain = "boda-guest-session-v1:"
-	// guestSessionDomainV2 signs the v2 payload: expiry followed by guest_id.
+	// guestSessionDomainV2 signs the guest payload: expiry followed by guest_id.
+	// Cookies in the older format without guest_id are not accepted.
 	guestSessionDomainV2 = "boda-guest-session-v2:"
 )
 
@@ -40,29 +39,27 @@ func NewGuestCookie(key []byte, now time.Time) *http.Cookie {
 	return guestCookie(key, now, now.Add(GuestSessionLifetime).UTC(), newGuestID())
 }
 
-// RenewGuestCookie issues the cookie for a QR re-entry. A valid v2 cookie keeps
+// RenewGuestCookie issues the cookie for a QR re-entry. A valid cookie keeps
 // its guest_id, so rescanning in the same browser does not create a new voter;
 // any other request receives a fresh identity.
 func RenewGuestCookie(key []byte, r *http.Request, now time.Time) *http.Cookie {
 	guestID := newGuestID()
 	if cookie, err := r.Cookie(GuestCookieName); err == nil {
-		if session, ok := parseGuestSession(cookie.Value, key, now); ok && !session.legacy {
+		if session, ok := parseGuestSession(cookie.Value, key, now); ok {
 			guestID = session.guestID
 		}
 	}
 	return guestCookie(key, now, now.Add(GuestSessionLifetime).UTC(), guestID)
 }
 
-// ValidGuestSession verifies the signature and expiration of a guest cookie in
-// either the current v2 format or the legacy v1 format.
+// ValidGuestSession verifies the signature and expiration of a guest cookie.
 func ValidGuestSession(value string, key []byte, now time.Time) bool {
 	_, ok := parseGuestSession(value, key, now)
 	return ok
 }
 
 // RequireGuestSession wraps a protected handler with guest-cookie validation.
-// It attaches the guest_id to the request context. A valid legacy v1 cookie is
-// upgraded in the response to v2 with a fresh guest_id and the same expiry.
+// It attaches the guest_id to the request context.
 // Public endpoints should be registered outside this middleware.
 func RequireGuestSession(key []byte, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,24 +74,17 @@ func RequireGuestSession(key []byte, next http.Handler) http.Handler {
 			http.Error(w, "guest session required", http.StatusUnauthorized)
 			return
 		}
-		guestID := session.guestID
-		if session.legacy {
-			guestID = newGuestID()
-			http.SetCookie(w, guestCookie(key, now, session.expires, guestID))
-		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), guestIDContextKey{}, guestID)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), guestIDContextKey{}, session.guestID)))
 	})
 }
 
-// guestSession is a validated cookie payload. Legacy v1 cookies carry no guest_id.
+// guestSession is a validated cookie payload.
 type guestSession struct {
 	expires time.Time
 	guestID string
-	legacy  bool
 }
 
-// guestCookie builds a v2 cookie with the given expiry and guest_id. MaxAge is
-// measured from now so that an upgraded cookie keeps its original expiry.
+// guestCookie builds a guest cookie with the given expiry and guest_id.
 func guestCookie(key []byte, now, expires time.Time, guestID string) *http.Cookie {
 	return &http.Cookie{
 		Name:     GuestCookieName,
@@ -108,7 +98,7 @@ func guestCookie(key []byte, now, expires time.Time, guestID string) *http.Cooki
 	}
 }
 
-// newGuestSignedValue encodes the v2 payload (8-byte expiry, 16-byte guest_id) followed by its HMAC.
+// newGuestSignedValue encodes the payload (8-byte expiry, 16-byte guest_id) followed by its HMAC.
 func newGuestSignedValue(key []byte, expires time.Time, guestID string) string {
 	raw, err := hex.DecodeString(guestID)
 	if err != nil || len(raw) != guestIDBytes {
@@ -143,33 +133,20 @@ func validSignedValue(domain, value string, key []byte, now time.Time) bool {
 	return expires > now.Unix()
 }
 
-// parseGuestSession checks the MAC in constant time and then the expiry. It
-// accepts v2 cookies and legacy v1 cookies; each has its own domain label.
+// parseGuestSession checks the length, then the MAC in constant time, then the expiry.
 func parseGuestSession(value string, key []byte, now time.Time) (guestSession, bool) {
 	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
+	if err != nil || len(decoded) != guestExpiryBytes+guestIDBytes+sha256.Size {
 		return guestSession{}, false
 	}
-	v2Size := guestExpiryBytes + guestIDBytes + sha256.Size
-	v1Size := guestExpiryBytes + sha256.Size
-	var session guestSession
-	switch len(decoded) {
-	case v2Size:
-		payload, signature := decoded[:guestExpiryBytes+guestIDBytes], decoded[guestExpiryBytes+guestIDBytes:]
-		if !hmac.Equal(signature, sessionMAC(guestSessionDomainV2, key, payload)) {
-			return guestSession{}, false
-		}
-		session.guestID = hex.EncodeToString(payload[guestExpiryBytes:])
-	case v1Size:
-		payload, signature := decoded[:guestExpiryBytes], decoded[guestExpiryBytes:]
-		if !hmac.Equal(signature, sessionMAC(guestSessionDomain, key, payload)) {
-			return guestSession{}, false
-		}
-		session.legacy = true
-	default:
+	payload, signature := decoded[:guestExpiryBytes+guestIDBytes], decoded[guestExpiryBytes+guestIDBytes:]
+	if !hmac.Equal(signature, sessionMAC(guestSessionDomainV2, key, payload)) {
 		return guestSession{}, false
 	}
-	session.expires = time.Unix(int64(binary.BigEndian.Uint64(decoded[:guestExpiryBytes])), 0).UTC()
+	session := guestSession{
+		expires: time.Unix(int64(binary.BigEndian.Uint64(payload[:guestExpiryBytes])), 0).UTC(),
+		guestID: hex.EncodeToString(payload[guestExpiryBytes:]),
+	}
 	if !session.expires.After(now) {
 		return guestSession{}, false
 	}

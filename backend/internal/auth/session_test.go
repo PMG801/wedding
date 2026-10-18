@@ -128,51 +128,20 @@ func TestGuestCookieV2CarriesStableRandomGuestID(t *testing.T) {
 	}
 }
 
-func TestLegacyV1CookieIsAcceptedAndUpgradedWithSameExpiry(t *testing.T) {
+func TestOldFormatCookieWithoutGuestIDIsRejected(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	now := time.Now().UTC()
-	expires := now.Add(10 * 24 * time.Hour).Truncate(time.Second)
-	legacy := &http.Cookie{Name: GuestCookieName, Value: legacyGuestCookieValue(key, expires)}
+	old := &http.Cookie{Name: GuestCookieName, Value: legacyGuestCookieValue(key, now.Add(10*24*time.Hour))}
 
-	if !ValidGuestSession(legacy.Value, key, now) {
-		t.Fatal("valid v1 cookie was rejected")
+	if ValidGuestSession(old.Value, key, now) {
+		t.Fatal("cookie without guest_id was accepted")
 	}
-	response, guestID := serveGuestRequest(t, key, legacy)
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("v1 cookie status = %d; want 204", response.Code)
+	response, guestID := serveGuestRequest(t, key, old)
+	if response.Code != http.StatusUnauthorized || response.Body.String() != "guest session required\n" {
+		t.Fatalf("old cookie response = %d %q; want 401 text", response.Code, response.Body.String())
 	}
-	if !validGuestID(guestID) {
-		t.Fatalf("upgraded guest_id = %q; want 32 lowercase hex characters", guestID)
-	}
-
-	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != GuestCookieName {
-		t.Fatalf("Set-Cookie = %#v; want one guest session upgrade", cookies)
-	}
-	upgraded := cookies[0]
-	if !upgraded.Expires.Equal(expires) {
-		t.Errorf("upgraded expiry = %v; want original %v", upgraded.Expires, expires)
-	}
-	if !upgraded.HttpOnly || !upgraded.Secure || upgraded.SameSite != http.SameSiteLaxMode || upgraded.Path != "/" {
-		t.Errorf("upgraded cookie attributes = %#v", upgraded)
-	}
-	if !ValidGuestSession(upgraded.Value, key, now) {
-		t.Fatal("upgraded cookie is not a valid guest session")
-	}
-	if ValidGuestSession(upgraded.Value, key, expires) {
-		t.Error("upgraded cookie outlived the original expiry")
-	}
-	reused, reusedID := serveGuestRequest(t, key, upgraded)
-	if reused.Code != http.StatusNoContent || reusedID != guestID {
-		t.Errorf("upgraded cookie guest_id = %q; want %q (status %d)", reusedID, guestID, reused.Code)
-	}
-	if len(reused.Result().Cookies()) != 0 {
-		t.Errorf("v2 cookie was upgraded again: %v", reused.Result().Cookies())
-	}
-
-	_, secondID := serveGuestRequest(t, key, legacy)
-	if !validGuestID(secondID) || secondID == guestID {
-		t.Errorf("second legacy upgrade guest_id = %q; want a fresh identity", secondID)
+	if guestID != "" || len(response.Result().Cookies()) != 0 {
+		t.Errorf("old cookie reached the handler (guest_id %q) or got Set-Cookie %v", guestID, response.Result().Cookies())
 	}
 }
 
@@ -191,18 +160,6 @@ func TestTamperedGuestCookieIsRejectedWithoutUpgrade(t *testing.T) {
 	}
 	if len(response.Result().Cookies()) != 0 {
 		t.Errorf("tampered cookie got Set-Cookie %v", response.Result().Cookies())
-	}
-
-	legacy := &http.Cookie{Name: GuestCookieName, Value: legacyGuestCookieValue(key, time.Now().Add(time.Hour))}
-	raw, err = base64.RawURLEncoding.DecodeString(legacy.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw[0] ^= 0x01 // change the expiry; the MAC must fail
-	legacy.Value = base64.RawURLEncoding.EncodeToString(raw)
-	response, _ = serveGuestRequest(t, key, legacy)
-	if response.Code != http.StatusUnauthorized || len(response.Result().Cookies()) != 0 {
-		t.Fatalf("tampered v1 response = %d cookies %v; want 401 without upgrade", response.Code, response.Result().Cookies())
 	}
 }
 
@@ -238,7 +195,7 @@ func TestRenewGuestCookieKeepsGuestIDOfValidV2Cookie(t *testing.T) {
 	legacyRenewed := RenewGuestCookie(key, legacyRequest, now)
 	_, legacyID := serveGuestRequest(t, key, legacyRenewed)
 	if !validGuestID(legacyID) {
-		t.Errorf("legacy entry guest_id = %q; want a new v2 identity", legacyID)
+		t.Errorf("entry with an old cookie guest_id = %q; want a new identity", legacyID)
 	}
 }
 

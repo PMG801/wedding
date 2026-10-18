@@ -164,17 +164,19 @@ func TestQRReentryInSameBrowserKeepsVoterIdentity(t *testing.T) {
 	}
 }
 
-func TestLegacyCookieLikeUsesUpgradedIdentity(t *testing.T) {
+func TestOldFormatCookieCannotLike(t *testing.T) {
 	fx := newLikeFixture(t)
-	legacy := legacyGuestCookieForTest(fx.key, time.Now().Add(48*time.Hour).UTC().Truncate(time.Second))
+	old := legacyGuestCookieForTest(fx.key, time.Now().Add(48*time.Hour))
 
-	upgraded := fx.do(http.MethodPut, likeVisibleID, legacy)
-	cookies := upgraded.Result().Cookies()
-	if upgraded.Code != http.StatusOK || len(cookies) != 1 || cookies[0].Name != auth.GuestCookieName {
-		t.Fatalf("legacy PUT = %d cookies %v; want 200 with upgraded cookie", upgraded.Code, cookies)
+	for range 2 {
+		response := fx.do(http.MethodPut, likeVisibleID, old)
+		if response.Code != http.StatusUnauthorized || response.Body.String() != "guest session required\n" || len(response.Result().Cookies()) != 0 {
+			t.Fatalf("old cookie PUT = %d %q cookies %v; want 401 text without Set-Cookie", response.Code, response.Body.String(), response.Result().Cookies())
+		}
 	}
-	assertLikeJSON(t, fx.do(http.MethodPut, likeVisibleID, cookies[0]),
-		`{"id":"`+likeVisibleID+`","like_count":1,"liked_by_me":true}`+"\n")
+	if count, rows := fx.counts(t, likeVisibleID); count != 0 || rows != 0 {
+		t.Fatalf("old cookie changed likes: count = %d rows = %d", count, rows)
+	}
 }
 
 func TestLikeRejectsMissingSessionAndInvalidIDWithoutWriting(t *testing.T) {

@@ -40,27 +40,25 @@ func TestGuestSessionCheckAuthorizesOnlyValidGuestCookies(t *testing.T) {
 	}
 }
 
-func TestLegacyGuestCookieStillPassesSessionCheckAndIsUpgraded(t *testing.T) {
+func TestOldFormatGuestCookieFailsSessionCheck(t *testing.T) {
 	key := []byte(testSessionKey)
-	expires := time.Now().Add(5 * 24 * time.Hour).UTC().Truncate(time.Second)
-	legacy := legacyGuestCookieForTest(key, expires)
+	old := legacyGuestCookieForTest(key, time.Now().Add(5*24*time.Hour))
 
 	handler := NewHandler(testEventToken, key, nil, 1, time.Second, 1024, nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
-	request.AddCookie(legacy)
+	request.AddCookie(old)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusNoContent || response.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("legacy cookie session = %d headers %v; want 204 no-store", response.Code, response.Header())
+	if response.Code != http.StatusUnauthorized || response.Body.String() != "guest session required\n" {
+		t.Fatalf("old cookie session = %d %q; want 401 text", response.Code, response.Body.String())
 	}
-	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "guest_session" || !cookies[0].Expires.Equal(expires) {
-		t.Fatalf("Set-Cookie = %#v; want one upgraded guest cookie with the original expiry", cookies)
+	if cookies := response.Result().Cookies(); len(cookies) != 0 {
+		t.Errorf("old cookie got Set-Cookie %v", cookies)
 	}
 }
 
-// legacyGuestCookieForTest builds a v1 guest cookie, the format issued before guest_id.
+// legacyGuestCookieForTest builds a correctly signed guest cookie in the old format without guest_id.
 func legacyGuestCookieForTest(key []byte, expires time.Time) *http.Cookie {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, uint64(expires.Unix()))
