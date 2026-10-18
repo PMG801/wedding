@@ -173,7 +173,7 @@ Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `s
 | **T6** | Reiniciar a mitad de subida | Reiniciar el contenedor `app` durante T3 | La aplicación arranca sola. La conciliación deja un estado coherente. Los clientes reintentan y completan. Caddy sigue sirviendo la galería mientras tanto |
 | **T7** | Disco lleno y ocultar | Subir el umbral de espacio libre por encima del espacio disponible. Ocultar un archivo y pedir su URL | Las subidas se desactivan automáticamente y las lecturas siguen. El archivo ocultado da 404 al instante y reaparece al volver a mostrarlo |
 | **T8** | Entrega y recuperación | Hacer el `rsync` de `originals/` a tu equipo con la aplicación en marcha. Borrar `boda.db` en una copia y lanzar `boda reindex` | El `rsync` termina sin archivos parciales. El índice reconstruido lista todos los originales |
-| **T9** | Ensayo general del despliegue | La semana anterior: ampliar el volumen, renovar el certificado, cambiar el token y reimprimir el QR, y probar el interruptor desde el móvil del administrador | Todo sale siguiendo `runbook.md`, sin improvisar |
+| **T9** | Ensayo general del despliegue | La semana anterior: ampliar el volumen, renovar el certificado, cambiar el token y reimprimir el QR, probar el interruptor desde el móvil del administrador y recorrer una galería de 500 o más medios en un móvil real | Todo sale siguiendo `runbook.md`, sin improvisar. La galería no se queda sin memoria ni salta al hacer scroll |
 
 **Orden recomendado:**
 1. T1 y T2 con el primer vertical slice (acceso, subida de un archivo y persistencia). Son las pruebas que pueden cambiar el diseño.

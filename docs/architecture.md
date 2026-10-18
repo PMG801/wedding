@@ -78,6 +78,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 
 - **Por qué encaja:** el resultado son archivos estáticos que sirve Caddy, sin proceso en el servidor. Svelte no arrastra apenas código de framework al navegador, lo que importa en móviles con 4G.
 - **Qué resuelve:** cinco pantallas (bienvenida, subida, galería, detalle y administración) y una cola de subidas con estado reactivo: progreso, reintentos y errores por archivo.
+- **Galería con memoria acotada:** la galería carga páginas de 50 al acercarse al final, pero solo monta en el DOM las filas visibles más una pantalla por arriba y otra por abajo, con un máximo de 150 miniaturas; unos espaciadores mantienen la altura total para que el scroll no salte. Los metadatos de todos los medios cargados se quedan en memoria (son pocos bytes); las imágenes fuera de esa ventana se liberan. Una lista de 150 o menos, como «Más gustadas», se pinta entera.
 - **Routing:** cinco rutas no justifican SvelteKit. Basta con un router mínimo de cliente o con rutas por hash.
 - **Coste:** hace falta Node **solo para compilar**, en la etapa de build de Docker o en local.
 - **Descartado: React** (con Vite): más código de framework y más piezas que elegir (router, estado) sin ninguna ventaja aquí. **Next.js o SvelteKit con servidor:** meten Node en producción. **htmx o JavaScript sin framework:** la cola de subidas con su estado hace que en poco tiempo acabes escribiendo tu propio framework.

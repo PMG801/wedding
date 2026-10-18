@@ -1,5 +1,5 @@
 # Gallery memory cap (bounded progressive loading)
-Status: IN PROGRESS. Branch `feat/gallery-windowing` from `develop` (dd49b1f).
+Status: DONE (pending review/merge). Branch `feat/gallery-windowing` from `develop` (dd49b1f).
 Tests: `cd frontend && npm test && npm run build`; backend only if the API changes; `scripts/smoke.sh`.
 
 ## Objective
@@ -24,9 +24,9 @@ Keep the gallery usable with 500+ photos and 100+ videos: load progressively and
 
 ## Tasks
 - [x] **T0 [D1-D4] — Decide technique and cap** · inline · evidence: decisions above; measurement on a real phone deferred to runbook T9 · commit: this doc
-- [ ] **T1 [S1, S2] — Pure windowing logic (visible range from scroll offset, tile size, columns) with tests** · inline, test-first · commit: pending
-- [ ] **T2 [S1-S4] — Integrate into `GalleryGrid.svelte`; keep feed tests green** · inline · commit: pending
-- [ ] **T3 [S5] — Docs and a check with a large seeded gallery in smoke** · inline · commit: pending
+- [x] **T1 [S1, S2] — Pure windowing logic (visible range from scroll offset, tile size, columns) with tests** · inline, test-first · evidence: RED on the placeholder `computeWindow`: `window.test.ts` 8 failed / 3 passed; a new "ranking of at most 50 renders all" case failed (rendered 39 of 50) before the fit-under-cap rule. GREEN: `npx vitest run src/lib/gallery/window.test.ts` 13/13 · commit: `af7e7f7`
+- [x] **T2 [S1-S4] — Integrate into `GalleryGrid.svelte`; keep feed tests green** · inline · evidence: `npm test` 15 files / 131 tests passed (feed.test.ts unchanged); `npm run build` ok; `npx svelte-check` 0 errors / 0 warnings; component compiles with no warnings. Not run: `GalleryGrid.test.ts` (vitest.config.ts has no Svelte plugin, so `.svelte` cannot be imported in tests without changing config outside this task's surfaces); browser check moved to T3 · commit: `af7e7f7`
+- [x] **T3 [S1-S5] — Docs and a check with a large gallery** · inline · evidence: headless Chromium 390×844 mobile against the built `dist` and a throwaway mock API with 600 items (scratch dir, not committed): first page 50 tiles (under the cap, not windowed); after scrolling to the end all 600 loaded and 30 `li.cell` mounted, the last pages reached; scrolling up 20 steps kept `scrollHeight` 41657 constant; opening and closing a photo kept `scrollY` 21873 (S4); «Más gustadas» showed all 50 at the top; back to «Recientes» at `scrollY` 0 with 20 tiles. Docs: `docs/architecture.md` (galería con memoria acotada), runbook T9 adds a real-phone walk of 500+ media. Not added to `scripts/smoke.sh`: smoke has no browser, and seeding 600 uploads there is slow for a pure frontend change · commit: this commit
 
 Risk: none expected (frontend only, existing feed tests cover regressions); revisit if the API changes.
 
