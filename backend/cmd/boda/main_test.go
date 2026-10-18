@@ -138,7 +138,7 @@ func TestAppHandlerWiresAdminSwitchIntoUploadsAndPersistsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	handler, err := newAppHandler(ctx, database, cfg, photos, gallery, paths)
 	if err != nil {
 		t.Fatalf("newAppHandler() = %v", err)
 	}
@@ -177,7 +177,7 @@ func TestAppHandlerWiresAdminSwitchIntoUploadsAndPersistsIt(t *testing.T) {
 	}
 
 	// A fresh handler on the same database must start with the persisted switch.
-	restarted, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	restarted, err := newAppHandler(ctx, database, cfg, photos, gallery, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestConfiguredDerivativeLimitReachesTheDerivativeRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := newAppHandler(ctx, database, cfg, photos, gallery)
+	handler, err := newAppHandler(ctx, database, cfg, photos, gallery, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,5 +274,43 @@ func TestConfiguredDerivativeLimitReachesTheDerivativeRoute(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != "{\"error\":\"derivative_too_large\"}\n" {
 		t.Fatalf("11-byte derivative with 10-byte limit = %d %q; want 413 derivative_too_large", response.Code, response.Body.String())
+	}
+}
+
+func TestAppHandlerWiresPinnedItemsForGuestsAndAdmins(t *testing.T) {
+	root := t.TempDir()
+	configureTestEnvironment(t, root)
+	ctx := context.Background()
+	database, cfg, paths, err := initialize(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	photos, err := newPhotoStore(database, cfg, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gallery, err := media.NewGallery(database, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := newAppHandler(ctx, database, cfg, photos, gallery, paths)
+	if err != nil {
+		t.Fatalf("newAppHandler() = %v", err)
+	}
+
+	guest := auth.NewGuestCookie([]byte(cfg.SessionKey), time.Now())
+	request := httptest.NewRequest(http.MethodGet, "/api/pinned", nil)
+	request.AddCookie(guest)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"items\":[]}\n" {
+		t.Fatalf("GET /api/pinned = %d %q; want 200 empty items", response.Code, response.Body.String())
+	}
+
+	anonymous := httptest.NewRecorder()
+	handler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/api/admin/pinned", nil))
+	if anonymous.Code != http.StatusUnauthorized || anonymous.Body.String() != "{\"error\":\"admin_session_required\"}\n" {
+		t.Fatalf("GET /api/admin/pinned without session = %d %q; want 401", anonymous.Code, anonymous.Body.String())
 	}
 }

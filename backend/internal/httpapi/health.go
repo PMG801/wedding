@@ -18,6 +18,7 @@ type handlerOptions struct {
 	moderator          mediaModerator
 	hiddenMedia        hiddenMediaSource
 	likes              likeStore
+	pinned             pinnedStore
 }
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
@@ -52,6 +53,7 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxDerivative, idleTimeout))))
 	registerAdminRoutes(mux, sessionKey, options)
 	registerLikeRoutes(mux, sessionKey, options.likes)
+	registerPinnedRoutes(mux, sessionKey, options.pinned)
 	mux.Handle("GET /api/media", auth.RequireGuestSession(sessionKey, newGalleryHandler(gallery)))
 	mux.Handle("GET /api/media/top", auth.RequireGuestSession(sessionKey, newTopHandler(gallery)))
 	mux.Handle("GET /api/session", auth.RequireGuestSession(sessionKey, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

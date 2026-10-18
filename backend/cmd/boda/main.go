@@ -18,6 +18,7 @@ import (
 	"github.com/PMG801/wedding/internal/httpapi"
 	"github.com/PMG801/wedding/internal/jobs"
 	"github.com/PMG801/wedding/internal/media"
+	"github.com/PMG801/wedding/internal/pinned"
 	"github.com/PMG801/wedding/internal/settings"
 	"github.com/PMG801/wedding/internal/storage"
 	"github.com/PMG801/wedding/internal/upload"
@@ -82,7 +83,7 @@ func runCheck() (resultErr error) {
 
 // newAppHandler composes the HTTP handler: guest and public routes plus the
 // administrator routes, sharing one cached upload switch loaded from SQLite.
-func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, photos *upload.Store, gallery *media.Gallery) (http.Handler, error) {
+func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, photos *upload.Store, gallery *media.Gallery, paths storage.Paths) (http.Handler, error) {
 	uploadSwitch, err := settings.Open(ctx, database)
 	if err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
@@ -91,13 +92,18 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	if err != nil {
 		return nil, fmt.Errorf("initialize likes: %w", err)
 	}
+	pinnedItems, err := pinned.New(database, paths)
+	if err != nil {
+		return nil, fmt.Errorf("initialize pinned items: %w", err)
+	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
 		httpapi.WithModeration(photos),
 		httpapi.WithHiddenMedia(gallery),
-		httpapi.WithLikes(likes)), nil
+		httpapi.WithLikes(likes),
+		httpapi.WithPinned(pinnedItems)), nil
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk
@@ -159,7 +165,7 @@ func runServe() (resultErr error) {
 	if err != nil {
 		return fmt.Errorf("initialize gallery: %w", err)
 	}
-	handler, err := newAppHandler(context.Background(), database, cfg, photos, gallery)
+	handler, err := newAppHandler(context.Background(), database, cfg, photos, gallery, paths)
 	if err != nil {
 		return err
 	}
