@@ -75,3 +75,20 @@ export function isDoubleTap(previous: TapPoint | null, current: TapPoint): boole
     Math.hypot(current.x - previous.x, current.y - previous.y) <= DOUBLE_TAP_DISTANCE
   )
 }
+
+/**
+ * Starts a video the guest just opened. Browsers may block autoplay with sound,
+ * so a blocked attempt is retried muted; the guest can unmute from the controls.
+ */
+export async function startPlayback(video: { muted: boolean; play(): Promise<void> }): Promise<void> {
+  try {
+    await video.play()
+  } catch {
+    video.muted = true
+    try {
+      await video.play()
+    } catch {
+      // Playback stays paused; the native controls still let the guest start it.
+    }
+  }
+}

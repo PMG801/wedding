@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GalleryItem } from '../api/media'
-import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster } from './view'
+import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster, startPlayback } from './view'
 
 const base: GalleryItem = {
   id: '123e4567-e89b-42d3-a456-426614174000',
@@ -86,5 +86,27 @@ describe('like affordances', () => {
     expect(isDoubleTap(first, { time: 1250, x: 110, y: 105 })).toBe(true)
     expect(isDoubleTap(first, { time: 1400, x: 100, y: 100 })).toBe(false)
     expect(isDoubleTap(first, { time: 1200, x: 200, y: 100 })).toBe(false)
+  })
+})
+
+describe('startPlayback', () => {
+  it('plays with sound when the browser allows it', async () => {
+    const video = { muted: false, play: vi.fn().mockResolvedValue(undefined) }
+    await startPlayback(video)
+    expect(video.play).toHaveBeenCalledTimes(1)
+    expect(video.muted).toBe(false)
+  })
+
+  it('retries muted when the browser blocks autoplay with sound', async () => {
+    const play = vi.fn().mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError')).mockResolvedValue(undefined)
+    const video = { muted: false, play }
+    await startPlayback(video)
+    expect(play).toHaveBeenCalledTimes(2)
+    expect(video.muted).toBe(true)
+  })
+
+  it('gives up silently when playback is impossible even muted', async () => {
+    const video = { muted: false, play: vi.fn().mockRejectedValue(new DOMException('no', 'NotAllowedError')) }
+    await expect(startPlayback(video)).resolves.toBeUndefined()
   })
 })

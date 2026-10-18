@@ -1,7 +1,7 @@
 <script lang="ts">
   import { setMediaVisibility } from '../lib/api/moderation'
   import type { GalleryItem } from '../lib/api/media'
-  import { detailImage, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint } from '../lib/gallery/view'
+  import { detailImage, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint, startPlayback } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
   let {
@@ -50,6 +50,10 @@
     void item.id
     hideError = ''
   })
+
+  function autoplay(node: HTMLVideoElement) {
+    void startPlayback(node)
+  }
 
   function previous() {
     if (hasPrevious) onNavigate(index - 1)
@@ -137,7 +141,8 @@
             poster={videoPoster(item)}
             controls
             playsinline
-            preload="metadata"
+            preload="auto"
+            use:autoplay
             onerror={() => (failedVideoId = item.id)}
           ></video>
         {/key}
