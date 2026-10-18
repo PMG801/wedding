@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { GalleryFeedState, GalleryView } from '../lib/gallery/feed'
   import { computeWindow } from '../lib/gallery/window'
-  import { gridImage, isVideoItem, photoHash } from '../lib/gallery/view'
+  import { gridImage, isVideoItem, photoHash, shouldShowLikeBadge } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
   let {
@@ -134,6 +134,7 @@
             <span class="play-badge" role="img" aria-label={copy.gallery.videoLabel}>▶</span>
           {/if}
         </a>
+        {#if shouldShowLikeBadge(item)}
         <button
           class="like"
           class:liked={item.likedByMe}
@@ -146,6 +147,7 @@
           <span aria-hidden="true">{item.likedByMe ? '♥' : '♡'}</span>
           <span aria-hidden="true">{item.likeCount}</span>
         </button>
+        {/if}
       </li>
     {/each}
     {#if slice.bottomSpacer > 0}

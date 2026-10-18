@@ -1,7 +1,7 @@
 <script lang="ts">
   import { setMediaVisibility } from '../lib/api/moderation'
   import type { GalleryItem } from '../lib/api/media'
-  import { detailImage, downloadFileName, downloadUrl, isVideoItem, videoPoster } from '../lib/gallery/view'
+  import { detailImage, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint } from '../lib/gallery/view'
   import { copy } from '../lib/i18n/es'
 
   let {
@@ -31,6 +31,9 @@
   let failedVideoId = $state<string | null>(null)
   let hiding = $state(false)
   let hideError = $state('')
+  let lastTap: TapPoint | null = null
+  let heartVisible = $state(false)
+  let heartTimer: ReturnType<typeof setTimeout> | undefined
 
   const item = $derived(items[index])
   const image = $derived(detailImage(item))
@@ -72,6 +75,29 @@
     onClose()
   }
 
+  function onFramePointerUp(event: PointerEvent) {
+    const target = event.target as HTMLElement
+    // Leave the bottom strip of a video to its native controls.
+    if (target instanceof HTMLVideoElement) {
+      const rect = target.getBoundingClientRect()
+      if (event.clientY > rect.bottom - 56) {
+        lastTap = null
+        return
+      }
+    }
+    const tap = { time: event.timeStamp, x: event.clientX, y: event.clientY }
+    if (!isDoubleTap(lastTap, tap)) {
+      lastTap = tap
+      return
+    }
+    lastTap = null
+    // A double tap only adds a like; removing one stays on the button.
+    if (!item.likedByMe) onLike(item.id)
+    heartVisible = true
+    clearTimeout(heartTimer)
+    heartTimer = setTimeout(() => (heartVisible = false), 700)
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (event.key === 'ArrowLeft') previous()
     if (event.key === 'ArrowRight') next()
@@ -95,7 +121,11 @@
   ontouchstart={(event) => (touchStartX = event.touches[0].clientX)}
   ontouchend={onTouchEnd}
 >
-  <div class="frame">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="frame" onpointerup={onFramePointerUp}>
+    {#if heartVisible}
+      <span class="heart-burst" aria-hidden="true">♥</span>
+    {/if}
     {#if video}
       {#if failedVideoId === item.id}
         <p class="no-preview">{copy.detail.videoUnsupported}</p>
@@ -173,6 +203,7 @@
   }
 
   .frame {
+    position: relative;
     min-height: 0;
     display: grid;
     place-items: center;
@@ -185,6 +216,32 @@
     max-height: 100%;
     object-fit: contain;
     touch-action: pan-y pinch-zoom;
+  }
+
+  .frame img {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .heart-burst {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 6rem;
+    color: var(--danger-soft);
+    pointer-events: none;
+    animation: heart-pop 700ms ease-out forwards;
+  }
+
+  @keyframes heart-pop {
+    0% { opacity: 0; transform: scale(0.5); }
+    30% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .heart-burst { animation-duration: 1ms; }
   }
 
   .no-preview {

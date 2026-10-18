@@ -52,3 +52,26 @@ export async function hasGuestSession(fetchFn: typeof fetch = fetch): Promise<bo
   if (response.status === 401) return false
   throw new Error(`Session check failed with HTTP ${response.status}`)
 }
+
+/** The grid shows the like badge only for items that already have at least one like. */
+export function shouldShowLikeBadge(item: GalleryItem): boolean {
+  return item.likeCount > 0
+}
+
+export interface TapPoint {
+  time: number
+  x: number
+  y: number
+}
+
+const DOUBLE_TAP_MS = 300
+const DOUBLE_TAP_DISTANCE = 40
+
+/** True when `current` follows `previous` closely enough in time and space to be a double tap. */
+export function isDoubleTap(previous: TapPoint | null, current: TapPoint): boolean {
+  if (previous === null) return false
+  return (
+    current.time - previous.time <= DOUBLE_TAP_MS &&
+    Math.hypot(current.x - previous.x, current.y - previous.y) <= DOUBLE_TAP_DISTANCE
+  )
+}

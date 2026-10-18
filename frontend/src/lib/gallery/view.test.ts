@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GalleryItem } from '../api/media'
-import { detailImage, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster } from './view'
+import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster } from './view'
 
 const base: GalleryItem = {
   id: '123e4567-e89b-42d3-a456-426614174000',
@@ -71,5 +71,20 @@ describe('hasGuestSession', () => {
     await expect(hasGuestSession(vi.fn().mockResolvedValue({ status: 204 }))).resolves.toBe(true)
     await expect(hasGuestSession(vi.fn().mockResolvedValue({ status: 401 }))).resolves.toBe(false)
     await expect(hasGuestSession(vi.fn().mockResolvedValue({ status: 502 }))).rejects.toThrow('HTTP 502')
+  })
+})
+
+describe('like affordances', () => {
+  it('shows the grid like badge only once an item has a like', () => {
+    expect(shouldShowLikeBadge({ ...base, likeCount: 0 })).toBe(false)
+    expect(shouldShowLikeBadge({ ...base, likeCount: 1 })).toBe(true)
+  })
+
+  it('detects a double tap by time and distance', () => {
+    const first = { time: 1000, x: 100, y: 100 }
+    expect(isDoubleTap(null, first)).toBe(false)
+    expect(isDoubleTap(first, { time: 1250, x: 110, y: 105 })).toBe(true)
+    expect(isDoubleTap(first, { time: 1400, x: 100, y: 100 })).toBe(false)
+    expect(isDoubleTap(first, { time: 1200, x: 200, y: 100 })).toBe(false)
   })
 })
