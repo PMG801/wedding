@@ -42,13 +42,13 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
   - Evidence: tests cover successful `check` initialization/migration, secret-safe invalid configuration, missing data root, invalid DB path, and listener failure in `serve`. Both commands share initialization and defer DB close. Independent verifier found no code/docs defect; direct close-path instrumentation is not present, though deferred cleanup is visible in code. Spanish runbook documents the startup requirements. Native review of this exact 179-line candidate was medium risk, approved, and acknowledged; review authority was burned. ASSESS of the committed range remains unassessable due untracked-scope declaration, so no ASSESS-derived closure is claimed.
   - Commit: `8f0dac9` (`feat(backend): initialize storage for check and serve`).
 
-- [ ] **T4 — Pass required runtime environment to the Compose smoke test**
+- [x] **T4 — Pass required runtime environment to the Compose smoke test**
   - Route: delegated writer (Compose and shell harness); baseline configuration assertion, then focused verification.
   - Scope: map the newly required BODA_DATA_DIR and secret settings into the app service; have `scripts/smoke.sh` supply deterministic fake test values, never real credentials. Use an existing writable in-container root for the ephemeral smoke data.
   - Allowed edit surfaces: `compose.yaml`, `scripts/smoke.sh`.
-  - Checks: RED observed — `docker compose config --format json` with harmless test inputs showed only `BODA_ADDR` in `app.environment`; all four new required settings were absent. GREEN — pending `bash -n scripts/smoke.sh` and rendered config containing the required values. Do not run `scripts/smoke.sh` unless its Compose lifecycle is confirmed safe.
-  - Evidence: delegated verifier observed the baseline failure; no files or Docker state were changed.
-  - Commit: pending.
+  - Checks: RED observed — `docker compose config --format json` with harmless test inputs showed only `BODA_ADDR` in `app.environment`; all four new required settings were absent. GREEN observed — `bash -n scripts/smoke.sh` passes and `docker compose config --format json` with the smoke env file renders `BODA_ADDR`, `BODA_DATA_DIR=/srv/evento`, `BODA_EVENT_TOKEN`, `BODA_ADMIN_PASSWORD_HASH`, `BODA_SESSION_KEY` and `BODA_DISK_MIN_FREE_BYTES` in `app.environment`. Do not run `scripts/smoke.sh` unless its Compose lifecycle is confirmed safe.
+  - Evidence: baseline failure observed by the delegated verifier; the change was already delivered by `compose.yaml` (`env_file: ${BODA_ENV_FILE:-.env}`) and `scripts/smoke.sh` (temporary 0600 env file with fake test-only values, no production credentials). Re-verified without running the Compose lifecycle.
+  - Commit: `cd8d617` (env configuration) and `53f60be` (smoke env file contents).
 
 ## Acceptance criteria
 1. Startup rejects missing required configuration and an absent or unwritable data root without printing secret values.
@@ -80,4 +80,4 @@ The repository currently has a runnable HTTP scaffold, but `boda check` only che
 - No PRs, pushes, or merges are authorized.
 
 ## Next step
-Implement T4 in `compose.yaml` and `scripts/smoke.sh`, then verify the rendered environment without running the Compose lifecycle.
+All tasks T1–T4 are complete. No PRs, pushes, or merges are authorized; delivery remains the user's decision.

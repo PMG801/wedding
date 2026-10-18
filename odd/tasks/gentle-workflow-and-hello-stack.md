@@ -23,4 +23,4 @@ Make the repo comfortable to work on with the Gentle/ODD harness (project-level 
   - Evidence: scripts/smoke.sh passed locally (health + mount); CI YAML valid; smoke job needs checks. Commit: 0933d46
 
 ## Evidence
-(pending; record check results and commit ids per task)
+All tasks T1–T5 are complete; check results and commit ids are recorded per task above.
