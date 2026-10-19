@@ -293,7 +293,9 @@ Las dos vistas se cambian con las pestañas de la barra inferior fija, «Recient
 
 ## Publicaciones fijadas («Fijados»)
 
-El administrador puede fijar hasta cinco entradas de texto (horarios, avisos, un juego) encima de la galería, desde su pantalla (ADR-0013). Los invitados las ven en la sección plegable «Fijados»; cada dispositivo recuerda si la dejó plegada.
+El administrador puede fijar hasta cinco entradas de texto (horarios, avisos, un juego) encima de la galería, desde su pantalla (ADR-0013). Los invitados las ven en la sección «Fijados», encima de la galería: una cabecera ligera con un icono de chincheta, el número de entradas y una flecha sin texto para plegarla o desplegarla (su etiqueta accesible es «Mostrar fijados» u «Ocultar fijados»). Cada dispositivo recuerda si la dejó plegada.
+
+- Las entradas van en tarjetas que se deslizan en horizontal; la segunda asoma para indicar que hay más. Un texto de más de cuatro líneas se recorta y aparece una flecha «Leer más» (y «Leer menos» para volver a plegarlo); los textos cortos no muestran la flecha.
 
 - Solo texto plano: título de 1 a 120 caracteres y cuerpo de hasta 2000, con saltos de línea. No se interpreta HTML ni Markdown.
 - Imagen opcional: una foto ya subida a la galería. Para elegirla, ábrela en la galería y copia el identificador de la dirección (lo que va después de `#/foto/`). Si esa foto se oculta, la entrada sigue fijada pero sin imagen; al mostrarla, la imagen vuelve.
@@ -302,7 +304,7 @@ El administrador puede fijar hasta cinco entradas de texto (horarios, avisos, un
 
 ## Comportamiento de la subida en el cliente
 
-- Subir: el botón central **Subir** de la barra inferior abre el selector de fotos y vídeos (la barra también tiene «Recientes» y «Más gustadas»). Mientras hay subidas, una franja compacta encima de la barra muestra el progreso, «Reintentar» si algo falla y «Ocultar las subidas terminadas». Al llegar al final de la galería, el aviso «Ya has visto todas las fotos» y la última fila de fotos quedan por encima de la barra y de la franja.
+- Subir: el botón central **Subir** de la barra inferior abre el selector de fotos y vídeos (la barra también tiene «Recientes» y «Más gustadas»). Mientras hay subidas, una franja compacta encima de la barra muestra el progreso, el aviso «No cierres esta página hasta que terminen», «Reintentar» si algo falla y «Ocultar las subidas terminadas». Al llegar al final de la galería, el aviso «Ya has visto todas las fotos» y la última fila de fotos quedan por encima de la barra y de la franja.
 - Si una subida no recibe progreso durante 60 segundos, el cliente la aborta y la reintenta. No hay plazo total: un vídeo grande puede tardar lo que haga falta mientras siga avanzando.
 - Hasta 5 reintentos, con espera exponencial de 1 s × 2^n y jitter (entre la mitad y el total). La espera nunca baja de `Retry-After` si el servidor lo envía.
 - `503 uploads_paused`: no se reintenta automáticamente. El invitado ve «Las subidas están en pausa» y reintenta a mano.

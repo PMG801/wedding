@@ -9,7 +9,7 @@ export const copy = {
   upload: {
     button: 'Subir fotos y vídeos',
     navLabel: 'Subir',
-    hint: 'Puedes elegir varias a la vez. Las fotos se suben de dos en dos y cada vídeo va solo, así que pueden tardar; no cierres esta página hasta que terminen.',
+    keepOpen: 'No cierres esta página hasta que terminen.',
     retry: 'Reintentar',
     progress: 'Progreso de la subida',
     clearDone: 'Ocultar las subidas terminadas'
@@ -33,8 +33,10 @@ export const copy = {
   },
   pinned: {
     heading: 'Fijados',
-    expand: 'Desplegar',
-    collapse: 'Plegar',
+    show: 'Mostrar fijados',
+    hide: 'Ocultar fijados',
+    readMore: 'Leer más',
+    readLess: 'Leer menos',
     imageAlt: 'Foto de la publicación fijada',
     openImage: 'Ampliar la foto',
     admin: {

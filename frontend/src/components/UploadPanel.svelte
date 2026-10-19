@@ -27,6 +27,7 @@
       <div aria-live="polite" class="text">
         {#if summary.remaining > 0}
           <p class="summary-title">{uploadSummaryLabels.remaining(summary.remaining, summary.total)}</p>
+          <p class="summary-note">{copy.upload.keepOpen}</p>
         {:else if summary.state === 'finished'}
           <p class="summary-title">{uploadSummaryLabels.finished(summary.done)}</p>
         {/if}

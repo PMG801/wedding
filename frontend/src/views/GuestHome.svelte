@@ -122,8 +122,6 @@
   }
 </script>
 
-<p class="hint">{copy.upload.hint}</p>
-
 <PinnedSection onSessionLost={onSessionLost} />
 
 <GalleryGrid
@@ -157,13 +155,6 @@
 <div class="dock-room" aria-hidden="true" style:height="{dockHeight}px"></div>
 
 <style>
-  .hint {
-    margin: 0 0 1.25rem;
-    text-align: center;
-    color: var(--muted);
-    font-size: 0.9rem;
-  }
-
   /* Fixed under the page: the strip above the nav, both in the same 960px column. */
   .dock {
     position: fixed;

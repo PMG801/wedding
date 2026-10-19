@@ -41,6 +41,18 @@ describe('Spanish UI copy', () => {
     expect(copy.upload.button).toBe('Subir fotos y vídeos')
   })
 
+  it('keeps the upload strip line short and tells guests not to close the page', () => {
+    expect(copy.upload.keepOpen).toBe('No cierres esta página hasta que terminen.')
+    expect(copy.upload).not.toHaveProperty('hint')
+  })
+
+  it('labels the pinned toggle as an icon with words for screen readers only', () => {
+    expect(copy.pinned.show).toBe('Mostrar fijados')
+    expect(copy.pinned.hide).toBe('Ocultar fijados')
+    expect(copy.pinned.readMore).toBe('Leer más')
+    expect(copy.pinned.readLess).toBe('Leer menos')
+  })
+
   it('labels the like button in Spanish and explains a failed like', () => {
     expect(copy.likes.like).toBe('Me gusta')
     expect(copy.likes.unlike).toBe('Quitar me gusta')
