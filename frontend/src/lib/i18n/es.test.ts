@@ -36,6 +36,11 @@ describe('Spanish UI copy', () => {
     expect(copy.ranking.empty).toBe('Todavía no hay fotos con me gusta')
   })
 
+  it('labels the bottom navigation upload slot with a short word', () => {
+    expect(copy.upload.navLabel).toBe('Subir')
+    expect(copy.upload.button).toBe('Subir fotos y vídeos')
+  })
+
   it('labels the like button in Spanish and explains a failed like', () => {
     expect(copy.likes.like).toBe('Me gusta')
     expect(copy.likes.unlike).toBe('Quitar me gusta')

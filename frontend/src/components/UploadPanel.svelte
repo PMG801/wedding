@@ -3,14 +3,13 @@
   import type { UploadItem } from '../lib/upload/queue'
   import { summarizeUploads } from '../lib/upload/summary'
 
+  /** Compact upload progress strip above the bottom navigation (S8). Shown only while uploads exist. */
   let {
     items,
-    onFiles,
     onRetry,
     onDismissFinished
   }: {
     items: readonly UploadItem[]
-    onFiles: (files: File[]) => void
     onRetry: (id: string) => void
     onDismissFinished: () => void
   } = $props()
@@ -20,33 +19,12 @@
   function retryAll() {
     for (const id of summary.retryableIds) onRetry(id)
   }
-
-  function select(event: Event) {
-    const input = event.currentTarget as HTMLInputElement
-    if (input.files !== null && input.files.length > 0) onFiles([...input.files])
-    // Allow choosing the same photos again after a failure.
-    input.value = ''
-  }
 </script>
 
-<section class="card upload" aria-labelledby="upload-heading">
-  <h2 id="upload-heading" class="visually-hidden">{copy.upload.button}</h2>
-  <label class="button primary">
-    <input
-      class="visually-hidden"
-      type="file"
-      multiple
-      accept="image/jpeg,image/png,image/heic,image/heif,video/mp4,video/quicktime,.heic,.heif,.mp4,.m4v,.mov"
-      onchange={select}
-    />
-    <span aria-hidden="true">＋</span>
-    {copy.upload.button}
-  </label>
-  <p class="hint">{copy.upload.hint}</p>
-
-  {#if summary.state !== 'idle'}
-    <div class="summary" data-state={summary.state}>
-      <div aria-live="polite">
+{#if summary.state !== 'idle'}
+  <section class="strip" data-state={summary.state} aria-label={copy.upload.button}>
+    <div class="head">
+      <div aria-live="polite" class="text">
         {#if summary.remaining > 0}
           <p class="summary-title">{uploadSummaryLabels.remaining(summary.remaining, summary.total)}</p>
         {:else if summary.state === 'finished'}
@@ -62,57 +40,70 @@
           <p class="summary-note">{uploadSummaryLabels.rejected(summary.rejected)}</p>
         {/if}
       </div>
-      {#if summary.total > 0}
-        <progress max="1" value={summary.progress} aria-label={copy.upload.progress}></progress>
-      {/if}
-      {#if summary.retryableIds.length > 0}
-        <button class="button small" type="button" onclick={retryAll}>{copy.upload.retry}</button>
-      {/if}
-      {#if summary.remaining === 0 && summary.done > 0}
-        <button class="link" type="button" onclick={onDismissFinished}>{copy.upload.clearDone}</button>
-      {/if}
+      <div class="actions">
+        {#if summary.retryableIds.length > 0}
+          <button class="button small" type="button" onclick={retryAll}>{copy.upload.retry}</button>
+        {/if}
+        {#if summary.remaining === 0 && summary.done > 0}
+          <button class="link" type="button" onclick={onDismissFinished}>{copy.upload.clearDone}</button>
+        {/if}
+      </div>
     </div>
-  {/if}
-</section>
+    {#if summary.total > 0}
+      <progress max="1" value={summary.progress} aria-label={copy.upload.progress}></progress>
+    {/if}
+  </section>
+{/if}
 
 <style>
-  .upload {
-    display: grid;
-    gap: 0.75rem;
-    justify-items: center;
-    text-align: center;
-  }
-
-  .hint {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.9rem;
-  }
-
-  .summary {
-    width: 100%;
-    padding: 0.75rem;
+  .strip {
+    box-sizing: border-box;
+    width: calc(100% - 1.5rem);
+    max-width: 928px;
+    margin: 0 auto 0.5rem;
+    padding: 0.5rem 0.75rem;
     border: 1px solid var(--line);
     border-radius: 0.6rem;
     background: var(--paper);
+    box-shadow: 0 2px 8px rgb(47 42 38 / 0.08);
     display: grid;
-    gap: 0.5rem;
-    justify-items: center;
+    gap: 0.35rem;
+    /* Notes may add lines, but never cover the whole screen (landscape phones). */
+    max-height: 40vh;
+    overflow-y: auto;
   }
 
-  .summary[data-state='attention'] {
+  .strip[data-state='attention'] {
     border-color: var(--danger-soft);
   }
 
-  .summary p {
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .text {
+    min-width: 0;
+    display: grid;
+    gap: 0.1rem;
+  }
+
+  .strip p {
     margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.3;
   }
 
   .summary-title {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .summary[data-state='finished'] .summary-title {
+  .strip[data-state='finished'] .summary-title {
     color: var(--sage-dark);
   }
 
@@ -123,12 +114,29 @@
 
   .summary-note {
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 0.5rem;
+  }
+
+  .actions .button.small,
+  .actions .link {
+    min-height: 2.75rem;
+  }
+
+  .actions .link {
+    display: inline-flex;
+    align-items: center;
   }
 
   progress {
     width: 100%;
-    height: 0.5rem;
+    height: 0.35rem;
     accent-color: var(--sage);
   }
 </style>

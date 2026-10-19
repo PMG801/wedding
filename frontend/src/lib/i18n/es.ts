@@ -8,6 +8,7 @@ export const copy = {
   pageTitle: 'Nuestra boda · Fotos',
   upload: {
     button: 'Subir fotos y vídeos',
+    navLabel: 'Subir',
     hint: 'Puedes elegir varias a la vez. Las fotos se suben de dos en dos y cada vídeo va solo, así que pueden tardar; no cierres esta página hasta que terminen.',
     retry: 'Reintentar',
     progress: 'Progreso de la subida',

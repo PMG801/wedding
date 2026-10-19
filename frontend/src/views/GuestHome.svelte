@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import BottomNav from '../components/BottomNav.svelte'
   import GalleryGrid from '../components/GalleryGrid.svelte'
   import PhotoDialog from '../components/PhotoDialog.svelte'
   import PinnedSection from '../components/PinnedSection.svelte'
   import UploadPanel from '../components/UploadPanel.svelte'
+  import { copy } from '../lib/i18n/es'
   import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
   import { hasAdminSession } from '../lib/api/moderation'
-  import { GalleryFeed, type GalleryFeedState } from '../lib/gallery/feed'
+  import { GalleryFeed, type GalleryFeedState, type GalleryView } from '../lib/gallery/feed'
   import { adoptDeepLink, closeViewer, moveViewer, openViewer } from '../lib/gallery/history'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
@@ -19,6 +21,8 @@
   let gallery = $state<GalleryFeedState>({ view: 'recent', items: [], status: 'idle', hasMore: true, likeFailedId: null })
   let route = $state<Route>(parseRoute(location.hash))
   let canHide = $state(false)
+  // Height of the fixed bottom dock (strip + nav); the page keeps that much room at its end (S8).
+  let dockHeight = $state(0)
 
   let finishedUploads = 0
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -101,21 +105,30 @@
   function dismissFinished() {
     dismissed = new Set([...dismissed, ...uploads.filter((item) => item.status === 'done').map((item) => item.id)])
   }
+
+  function scrollToGallery(smooth: boolean) {
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById('gallery')?.scrollIntoView({ behavior: smooth && !reduced ? 'smooth' : 'auto', block: 'start' })
+  }
+
+  /**
+   * The active tab scrolls back to the gallery top. Another tab switches the view and starts
+   * again at the top, instantly, so the window (D4) and the scroll position agree.
+   */
+  function selectView(view: GalleryView) {
+    if (view === gallery.view) return scrollToGallery(true)
+    scrollToGallery(false)
+    void feed.setView(view)
+  }
 </script>
 
-<UploadPanel
-  items={visibleUploads}
-  onFiles={(files) => queue.add(files)}
-  onRetry={(id) => queue.retry(id)}
-  onDismissFinished={dismissFinished}
-/>
+<p class="hint">{copy.upload.hint}</p>
 
 <PinnedSection onSessionLost={onSessionLost} />
 
 <GalleryGrid
   feed={gallery}
   onLoadMore={() => void feed.loadMore()}
-  onViewChange={(view) => void feed.setView(view)}
   onOpen={openPhoto}
   onLike={(id) => void feed.toggleLike(id)}
 />
@@ -132,3 +145,31 @@
     onHide={canHide ? (id) => feed.remove(id) : undefined}
   />
 {/if}
+
+<div class="dock" bind:clientHeight={dockHeight}>
+  <UploadPanel
+    items={visibleUploads}
+    onRetry={(id) => queue.retry(id)}
+    onDismissFinished={dismissFinished}
+  />
+  <BottomNav view={gallery.view} onViewChange={selectView} onFiles={(files) => queue.add(files)} />
+</div>
+<div class="dock-room" aria-hidden="true" style:height="{dockHeight}px"></div>
+
+<style>
+  .hint {
+    margin: 0 0 1.25rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  /* Fixed under the page: the strip above the nav, both in the same 960px column. */
+  .dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+  }
+</style>

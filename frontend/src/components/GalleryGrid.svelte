@@ -7,13 +7,11 @@
   let {
     feed,
     onLoadMore,
-    onViewChange,
     onOpen,
     onLike
   }: {
     feed: GalleryFeedState
     onLoadMore: () => void
-    onViewChange: (view: GalleryView) => void
     /** Opens the viewer for an item; plain link behaviour is kept for modified clicks. */
     onOpen: (id: string) => void
     onLike: (id: string) => void
@@ -106,17 +104,8 @@
   })
 </script>
 
-<section class="gallery" aria-labelledby="gallery-heading">
+<section id="gallery" class="gallery" aria-labelledby="gallery-heading">
   <h2 id="gallery-heading">{copy.gallery.heading}</h2>
-
-  <div class="views" role="group" aria-label={copy.gallery.viewsLabel}>
-    <button class="button small" type="button" aria-pressed={feed.view === 'recent'} onclick={() => onViewChange('recent')}>
-      {copy.gallery.views.recent}
-    </button>
-    <button class="button small" type="button" aria-pressed={feed.view === 'top'} onclick={() => onViewChange('top')}>
-      {copy.gallery.views.top}
-    </button>
-  </div>
 
   {#if feed.likeFailedId !== null}
     <p class="notice" role="alert">{copy.likes.failed}</p>
@@ -181,18 +170,6 @@
 <style>
   .gallery h2 {
     text-align: center;
-  }
-
-  .views {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    margin: 0.75rem 0;
-  }
-
-  .views .button[aria-pressed='true'] {
-    background: var(--sage);
-    color: #fff;
   }
 
   .grid {
