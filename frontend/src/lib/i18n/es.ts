@@ -76,7 +76,7 @@ export const copy = {
     close: 'Cerrar',
     previous: 'Foto anterior',
     next: 'Foto siguiente',
-    download: 'Descargar original',
+    download: 'Descargar',
     videoUnsupported: 'Tu navegador no puede reproducir este vídeo. Puedes descargar el original.',
     noPreview: 'Este formato no se puede mostrar en tu navegador. Puedes descargar la foto original.',
     hide: 'Ocultar',

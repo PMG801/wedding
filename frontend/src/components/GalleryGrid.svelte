@@ -8,13 +8,22 @@
     feed,
     onLoadMore,
     onViewChange,
+    onOpen,
     onLike
   }: {
     feed: GalleryFeedState
     onLoadMore: () => void
     onViewChange: (view: GalleryView) => void
+    /** Opens the viewer for an item; plain link behaviour is kept for modified clicks. */
+    onOpen: (id: string) => void
     onLike: (id: string) => void
   } = $props()
+
+  function open(event: MouseEvent, id: string): void {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    onOpen(id)
+  }
 
   let sentinel = $state<HTMLElement>()
   let gridEl = $state<HTMLUListElement>()
@@ -124,7 +133,7 @@
     {#each visibleItems as item (item.id)}
       {@const image = gridImage(item)}
       <li class="cell">
-        <a class="tile" href={photoHash(item.id)}>
+        <a class="tile" href={photoHash(item.id)} onclick={(event) => open(event, item.id)}>
           {#if image !== null}
             <img src={image} alt={copy.gallery.photoAlt} loading="lazy" decoding="async" />
           {:else}

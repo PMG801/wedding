@@ -7,6 +7,7 @@
   import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
   import { hasAdminSession } from '../lib/api/moderation'
   import { GalleryFeed, type GalleryFeedState } from '../lib/gallery/feed'
+  import { adoptDeepLink, closeViewer, moveViewer, openViewer } from '../lib/gallery/history'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
   import { UploadQueue, type UploadItem } from '../lib/upload/queue'
@@ -54,34 +55,47 @@
     return current.name === 'photo' ? gallery.items.findIndex((item) => item.id === current.id) : -1
   })
 
+  const homeUrl = () => `${location.pathname}${location.search}`
+
   onMount(() => {
     void feed.loadMore()
+    // A shared photo link still lets the back button return to the gallery (S4).
+    if (route.name === 'photo') adoptDeepLink(history, homeUrl(), location.hash)
     const onHashChange = () => (route = parseRoute(location.hash))
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (busy) event.preventDefault()
     }
     void hasAdminSession().then((isAdmin) => (canHide = isAdmin))
     addEventListener('hashchange', onHashChange)
+    addEventListener('popstate', onHashChange)
     addEventListener('beforeunload', onBeforeUnload)
     return () => {
       clearTimeout(refreshTimer)
       removeEventListener('hashchange', onHashChange)
+      removeEventListener('popstate', onHashChange)
       removeEventListener('beforeunload', onBeforeUnload)
     }
   })
+
+  /** Opens a photo from the grid on its own history entry, so back closes it (S4). */
+  function openPhoto(id: string) {
+    openViewer(history, photoHash(id))
+    route = parseRoute(location.hash)
+  }
 
   function showPhoto(index: number) {
     const item = gallery.items[index]
     if (item === undefined) return
     // Replace instead of push so browsing photos does not flood the history.
-    history.replaceState(null, '', photoHash(item.id))
+    moveViewer(history, photoHash(item.id))
     route = parseRoute(location.hash)
     if (index >= gallery.items.length - 3 && gallery.hasMore) void feed.loadMore()
   }
 
   function closePhoto() {
-    history.replaceState(null, '', `${location.pathname}${location.search}`)
-    route = { name: 'home' }
+    if (route.name !== 'photo') return
+    // Going back fires popstate, which brings the route home.
+    if (closeViewer(history, homeUrl()) === 'replaced') route = { name: 'home' }
   }
 
   function dismissFinished() {
@@ -102,6 +116,7 @@
   feed={gallery}
   onLoadMore={() => void feed.loadMore()}
   onViewChange={(view) => void feed.setView(view)}
+  onOpen={openPhoto}
   onLike={(id) => void feed.toggleLike(id)}
 />
 

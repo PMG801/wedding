@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import MediaLightbox from './MediaLightbox.svelte'
   import { GuestSessionRequiredError } from '../lib/api/media'
   import { fetchPinned, type PinnedImage, type PinnedItem } from '../lib/api/pinned'
+  import { closeViewer, openViewer } from '../lib/gallery/history'
   import { copy } from '../lib/i18n/es'
   import { readCollapsed, writeCollapsed } from '../lib/pinned/collapse'
 
@@ -10,15 +12,24 @@
   let items = $state<PinnedItem[]>([])
   let collapsed = $state(readCollapsed())
   let opened = $state<PinnedImage | null>(null)
-  let dialog = $state<HTMLDialogElement>()
-
-  $effect(() => {
-    if (opened !== null && dialog !== undefined && !dialog.open) dialog.showModal()
-  })
 
   onMount(() => {
     void load()
+    // The phone back button closes an open pinned image (S4).
+    const onPopState = () => (opened = null)
+    addEventListener('popstate', onPopState)
+    return () => removeEventListener('popstate', onPopState)
   })
+
+  function openImage(image: PinnedImage): void {
+    openViewer(history, location.href)
+    opened = image
+  }
+
+  function closeImage(): void {
+    if (opened === null) return
+    if (closeViewer(history, location.href) === 'replaced') opened = null
+  }
 
   /** A failed read hides the section quietly so the gallery below is not affected (S4). */
   async function load(): Promise<void> {
@@ -60,7 +71,7 @@
                 class="pinned-open"
                 type="button"
                 aria-label={copy.pinned.openImage}
-                onclick={() => (opened = item.image)}
+                onclick={() => item.image !== null && openImage(item.image)}
               >
                 <img src={item.image.thumbUrl} alt={copy.pinned.imageAlt} loading="lazy" decoding="async" />
               </button>
@@ -79,20 +90,9 @@
 {/if}
 
 {#if opened !== null}
-  <dialog
-    bind:this={dialog}
-    class="pinned-dialog"
-    aria-label={copy.pinned.imageAlt}
-    onclose={() => (opened = null)}
-    onclick={(event) => {
-      if (event.target === dialog) dialog?.close()
-    }}
-  >
+  <MediaLightbox label={copy.pinned.imageAlt} onClose={closeImage}>
     <img src={opened.detailUrl ?? opened.thumbUrl} alt={copy.pinned.imageAlt} decoding="async" />
-    <form method="dialog" class="pinned-close">
-      <button class="button round" type="submit" aria-label={copy.detail.close}>✕</button>
-    </form>
-  </dialog>
+  </MediaLightbox>
 {/if}
 
 <style>
@@ -147,37 +147,6 @@
     object-fit: cover;
     border-radius: 0.5rem;
     background: var(--line);
-  }
-
-  .pinned-dialog {
-    width: 100vw;
-    max-width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    margin: 0;
-    padding: 3.5rem 0.5rem 0.5rem;
-    border: none;
-    background: #1d1a17;
-    display: grid;
-    place-items: center;
-  }
-
-  .pinned-dialog::backdrop {
-    background: rgb(20 17 15 / 0.9);
-  }
-
-  .pinned-dialog img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    touch-action: pan-y pinch-zoom;
-  }
-
-  .pinned-close {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    margin: 0;
   }
 
   .pinned-text h3 {

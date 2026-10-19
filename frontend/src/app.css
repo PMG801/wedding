@@ -20,6 +20,11 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* The gallery behind an open viewer stays put; the scroll position is kept (S6). */
+:root:has(dialog[open]) {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
