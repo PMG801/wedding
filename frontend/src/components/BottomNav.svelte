@@ -17,6 +17,36 @@
     onFiles: (files: File[]) => void
   } = $props()
 
+  let row = $state<HTMLElement>()
+  let recentTab = $state<HTMLButtonElement>()
+  let topTab = $state<HTMLButtonElement>()
+  // One indicator slides under the active view tab (S10); it animates only after the first placement.
+  let indicator = $state({ x: 0, width: 0 })
+  let animate = $state(false)
+
+  function measure(): void {
+    const tab = view === 'recent' ? recentTab : topTab
+    if (tab === undefined) return
+    indicator = { x: tab.offsetLeft + tab.offsetWidth * 0.3, width: tab.offsetWidth * 0.4 }
+    if (!animate) requestAnimationFrame(() => (animate = true))
+  }
+
+  $effect(() => {
+    void view
+    void recentTab
+    void topTab
+    measure()
+  })
+
+  // Tab sizes change with the font and the viewport; re-place the indicator when they do.
+  $effect(() => {
+    if (recentTab === undefined || topTab === undefined || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measure())
+    observer.observe(recentTab)
+    observer.observe(topTab)
+    return () => observer.disconnect()
+  })
+
   function select(event: Event) {
     const input = event.currentTarget as HTMLInputElement
     if (input.files !== null && input.files.length > 0) onFiles([...input.files])
@@ -26,9 +56,16 @@
 </script>
 
 <nav class="nav" aria-label={copy.gallery.viewsLabel}>
-  <div class="row">
+  <div class="row" bind:this={row}>
+    <span
+      class="indicator"
+      class:animate
+      aria-hidden="true"
+      style:width="{indicator.width}px"
+      style:transform="translateX({indicator.x}px)"
+    ></span>
     <!-- Each view tab is a toggle button (aria-pressed) inside the labelled navigation landmark. -->
-    <button class="tab" type="button" aria-pressed={view === 'recent'} onclick={() => onViewChange('recent')}>
+    <button bind:this={recentTab} class="tab" type="button" aria-pressed={view === 'recent'} onclick={() => onViewChange('recent')}>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <rect x="3" y="3" width="7" height="7" rx="1.5" />
         <rect x="14" y="3" width="7" height="7" rx="1.5" />
@@ -55,7 +92,7 @@
       <span class="label">{copy.upload.navLabel}</span>
     </label>
 
-    <button class="tab" type="button" aria-pressed={view === 'top'} onclick={() => onViewChange('top')}>
+    <button bind:this={topTab} class="tab" type="button" aria-pressed={view === 'top'} onclick={() => onViewChange('top')}>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M12 20.5s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.8a4.2 4.2 0 0 1 7.5 2.7c0 5.4-7.5 10-7.5 10z" />
       </svg>
@@ -74,6 +111,7 @@
   }
 
   .row {
+    position: relative;
     box-sizing: border-box;
     max-width: 960px;
     height: 100%;
@@ -123,21 +161,22 @@
     stroke-linejoin: round;
   }
 
-  /* Static active marker; the animated indicator comes with T4. */
   .tab[aria-pressed='true'] {
     color: var(--sage-dark);
     font-weight: 600;
   }
 
-  .tab[aria-pressed='true']::before {
-    content: '';
+  .indicator {
     position: absolute;
     top: 0;
-    left: 30%;
-    right: 30%;
+    left: 0;
     height: 2px;
     border-radius: 0 0 2px 2px;
     background: var(--sage-dark);
+  }
+
+  .indicator.animate {
+    transition: transform 220ms ease-out;
   }
 
   .plus {
@@ -171,5 +210,11 @@
 
   .label {
     white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .indicator.animate {
+      transition: none;
+    }
   }
 </style>

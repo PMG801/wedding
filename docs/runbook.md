@@ -282,7 +282,7 @@ Notas de operación:
 
 ## «Me gusta» y «Más gustadas»
 
-Cada invitado puede marcar fotos y vídeos con un corazón, en la cuadrícula y en el visor. «Más gustadas» muestra los 50 medios visibles con más «me gusta» (al menos uno); «Recientes» sigue siendo la galería cronológica (ADR-0012).
+Cada invitado puede marcar fotos y vídeos con un corazón, en la cuadrícula y en el visor. En la cuadrícula el corazón con el recuento es un botón de 44 × 44 px (la píldora visible es más pequeña) y su nombre accesible incluye el recuento, por ejemplo «Me gusta, 3 me gustas»; solo aparece cuando la foto tiene al menos un me gusta. Las animaciones de la galería (aparición de las miniaturas, indicador de la barra inferior y apertura del visor) se desactivan si el móvil pide reducir el movimiento. «Más gustadas» muestra los 50 medios visibles con más «me gusta» (al menos uno); «Recientes» sigue siendo la galería cronológica (ADR-0012).
 
 Las dos vistas se cambian con las pestañas de la barra inferior fija, «Recientes» y «Más gustadas»; al cambiar, la galería vuelve arriba. Tocar la pestaña que ya está activa sube a la galería sin cambiar de vista.
 

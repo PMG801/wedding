@@ -129,6 +129,23 @@ h2 {
   cursor: default;
 }
 
+/* A like heart pops once after a tap that adds a like (S10); transform only. */
+.heart.pop {
+  animation: like-pop 280ms ease-out;
+}
+
+@keyframes like-pop {
+  40% {
+    transform: scale(1.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heart.pop {
+    animation-duration: 0.01ms;
+  }
+}
+
 .button:focus-visible,
 .button:has(input:focus-visible) {
   outline: 3px solid var(--sage-dark);

@@ -145,6 +145,18 @@
     background: rgb(20 17 15 / 0.9);
   }
 
+  /* Short open transition only; the closed dialog is display: none, so nothing animates on close (S10). */
+  .lightbox[open] {
+    animation: viewer-in 180ms ease-out;
+  }
+
+  @keyframes viewer-in {
+    from {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+
   .top {
     grid-area: top;
     display: flex;
@@ -173,6 +185,7 @@
   }
 
   /* Any aspect ratio is letterboxed inside the media area, never past it (S3). */
+  /* The media element is re-created on each navigation, so this fades every photo in (S10). */
   .frame :global(img),
   .frame :global(video) {
     display: block;
@@ -180,6 +193,21 @@
     height: 100%;
     object-fit: contain;
     touch-action: pan-y pinch-zoom;
+    animation: media-in 150ms ease-out;
+  }
+
+  @keyframes media-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lightbox[open],
+    .frame :global(img),
+    .frame :global(video) {
+      animation-duration: 0.01ms;
+    }
   }
 
   .frame :global(img) {

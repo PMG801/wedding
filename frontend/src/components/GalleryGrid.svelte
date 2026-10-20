@@ -2,7 +2,7 @@
   import type { GalleryFeedState, GalleryView } from '../lib/gallery/feed'
   import { computeWindow } from '../lib/gallery/window'
   import { gridImage, isVideoItem, photoHash, shouldShowLikeBadge } from '../lib/gallery/view'
-  import { copy } from '../lib/i18n/es'
+  import { copy, likeLabels } from '../lib/i18n/es'
 
   let {
     feed,
@@ -21,6 +21,15 @@
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
     onOpen(id)
+  }
+
+  // Id of the tile whose heart should pop: set by a tap that adds a like, cleared when the pop ends (S10).
+  // A remounted tile (windowing) therefore never pops on its own.
+  let popId = $state<string | null>(null)
+
+  function like(id: string, likedByMe: boolean): void {
+    if (!likedByMe) popId = id
+    onLike(id)
   }
 
   let sentinel = $state<HTMLElement>()
@@ -133,18 +142,22 @@
           {/if}
         </a>
         {#if shouldShowLikeBadge(item)}
-        <button
-          class="like"
-          class:liked={item.likedByMe}
-          type="button"
-          aria-label={copy.likes.like}
-          aria-pressed={item.likedByMe}
-          title={item.likedByMe ? copy.likes.unlike : copy.likes.like}
-          onclick={() => onLike(item.id)}
-        >
-          <span aria-hidden="true">{item.likedByMe ? '♥' : '♡'}</span>
-          <span aria-hidden="true">{item.likeCount}</span>
-        </button>
+          <!-- The button is a 44 px hit area around the compact pill; the name carries the count (S10). -->
+          <button
+            class="like"
+            class:liked={item.likedByMe}
+            type="button"
+            aria-label={likeLabels.button(item.likedByMe, item.likeCount)}
+            title={item.likedByMe ? copy.likes.unlike : copy.likes.like}
+            onclick={() => like(item.id, item.likedByMe)}
+          >
+            <span class="pill">
+              <span class="heart" class:pop={popId === item.id} aria-hidden="true" onanimationend={() => (popId = null)}>
+                {item.likedByMe ? '♥' : '♡'}
+              </span>
+              <span aria-hidden="true">{item.likeCount}</span>
+            </span>
+          </button>
         {/if}
       </li>
     {/each}
@@ -189,23 +202,36 @@
     grid-column: 1 / -1;
   }
 
+  /* 44 px square hit area; only the compact pill inside is painted. */
   .like {
     position: absolute;
-    left: 0.4rem;
-    bottom: 0.4rem;
+    left: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+  }
+
+  .pill {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
     padding: 0.15rem 0.5rem;
-    border: none;
     border-radius: 999px;
     background: rgb(29 26 23 / 0.6);
     color: #fff;
     font-size: 0.8rem;
-    cursor: pointer;
+    line-height: 1.4;
   }
 
-  .like.liked {
+  .like.liked .pill {
     color: var(--danger-soft);
   }
 
@@ -266,4 +292,5 @@
     gap: 0.5rem;
     padding: 1.5rem 0;
   }
+
 </style>

@@ -95,6 +95,17 @@ export const copy = {
   }
 } as const
 
+/**
+ * Accessible name of a like button: the action plus the photo's like count (the count is not visible in the viewer's text).
+ * The `count` argument is the current count, before the tap.
+ */
+export const likeLabels = {
+  button: (liked: boolean, count: number): string => {
+    const action = liked ? copy.likes.unlike : copy.likes.like
+    return `${action}, ${count} ${count === 1 ? 'me gusta' : 'me gustas'}`
+  }
+}
+
 /** Shown when the admin has paused uploads (503 uploads_paused). Retry is manual. */
 export const uploadPausedMessage = 'Las subidas están en pausa'
 

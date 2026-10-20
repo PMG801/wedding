@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { copy, uploadErrorMessages, uploadSummaryLabels } from './es'
+import { copy, likeLabels, uploadErrorMessages, uploadSummaryLabels } from './es'
 
 describe('Spanish UI copy', () => {
   it('explains every upload error code to guests', () => {
@@ -51,6 +51,14 @@ describe('Spanish UI copy', () => {
     expect(copy.pinned.hide).toBe('Ocultar fijados')
     expect(copy.pinned.readMore).toBe('Leer más')
     expect(copy.pinned.readLess).toBe('Leer menos')
+  })
+
+  it('announces the like action together with the photo like count', () => {
+    expect(likeLabels.button(false, 0)).toBe('Me gusta, 0 me gustas')
+    expect(likeLabels.button(false, 1)).toBe('Me gusta, 1 me gusta')
+    expect(likeLabels.button(false, 3)).toBe('Me gusta, 3 me gustas')
+    expect(likeLabels.button(true, 1)).toBe('Quitar me gusta, 1 me gusta')
+    expect(likeLabels.button(true, 3)).toBe('Quitar me gusta, 3 me gustas')
   })
 
   it('labels the like button in Spanish and explains a failed like', () => {

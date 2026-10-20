@@ -3,7 +3,7 @@
   import { setMediaVisibility } from '../lib/api/moderation'
   import type { GalleryItem } from '../lib/api/media'
   import { detailImage, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint, startPlayback } from '../lib/gallery/view'
-  import { copy } from '../lib/i18n/es'
+  import { copy, likeLabels } from '../lib/i18n/es'
 
   let {
     items,
@@ -33,6 +33,7 @@
   let lastTap: TapPoint | null = null
   let heartVisible = $state(false)
   let heartTimer: ReturnType<typeof setTimeout> | undefined
+  let popping = $state(false)
 
   const item = $derived(items[index])
   const image = $derived(detailImage(item))
@@ -99,6 +100,12 @@
     heartTimer = setTimeout(() => (heartVisible = false), 700)
   }
 
+  // Only a tap that adds a like pops the heart; a remounted button stays still (S10).
+  function like() {
+    if (!item.likedByMe) popping = true
+    onLike(item.id)
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (event.key === 'ArrowLeft') previous()
     if (event.key === 'ArrowRight') next()
@@ -154,12 +161,11 @@
       class="button ghost like"
       class:liked={item.likedByMe}
       type="button"
-      aria-label={copy.likes.like}
-      aria-pressed={item.likedByMe}
+      aria-label={likeLabels.button(item.likedByMe, item.likeCount)}
       title={item.likedByMe ? copy.likes.unlike : copy.likes.like}
-      onclick={() => onLike(item.id)}
+      onclick={like}
     >
-      <span aria-hidden="true">{item.likedByMe ? '♥' : '♡'}</span>
+      <span class="heart" class:pop={popping} aria-hidden="true" onanimationend={() => (popping = false)}>{item.likedByMe ? '♥' : '♡'}</span>
       <span aria-hidden="true">{item.likeCount}</span>
     </button>
     <button class="button round ghost" type="button" onclick={next} disabled={!hasNext} aria-label={copy.detail.next}>›</button>
