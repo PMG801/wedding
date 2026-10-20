@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { adminCopy } from '../i18n/admin'
 import type { AdminStatus } from '../api/admin'
-import { canSubmitPassword, diskNotice, formatGigabytes, isAdminPath, uploadsToggle } from './view'
+import { isAdminPath } from './path'
+import { canSubmitPassword, diskNotice, formatGigabytes, uploadsToggle } from './view'
 
 const enabled: AdminStatus = {
   uploadsEnabled: true,

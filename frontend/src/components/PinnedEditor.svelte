@@ -13,13 +13,14 @@
     updatePinned,
     type AdminPinnedItem
   } from '../lib/api/pinned'
-  import { copy, pinnedDraftErrorMessages } from '../lib/i18n/es'
+  import { adminCopy, pinnedDraftErrorMessages } from '../lib/i18n/admin'
+  import { copy } from '../lib/i18n/es'
   import { validatePinnedDraft, type DraftField } from '../lib/pinned/draft'
   import { canAddPinned, moveId } from '../lib/pinned/order'
 
   let { onSessionLost }: { onSessionLost: () => void } = $props()
 
-  const admin = copy.pinned.admin
+  const admin = adminCopy.pinned
 
   let items = $state<AdminPinnedItem[]>([])
   let loaded = $state(false)

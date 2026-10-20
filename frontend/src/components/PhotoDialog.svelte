@@ -2,7 +2,7 @@
   import MediaLightbox from './MediaLightbox.svelte'
   import { setMediaVisibility } from '../lib/api/moderation'
   import type { GalleryItem } from '../lib/api/media'
-  import { detailImage, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint, startPlayback } from '../lib/gallery/view'
+  import { detailImage, nextPreload, downloadFileName, downloadUrl, isDoubleTap, isVideoItem, videoPoster, type TapPoint, startPlayback } from '../lib/gallery/view'
   import { copy, likeLabels } from '../lib/i18n/es'
 
   let {
@@ -47,6 +47,15 @@
     // An error belongs to the photo that failed to hide.
     void item.id
     hideError = ''
+  })
+
+  // Fetch only the next image ahead so swiping feels instant without spending extra data (S11).
+  $effect(() => {
+    const url = nextPreload(items, index)
+    if (url === null) return
+    const image = new Image()
+    image.decoding = 'async'
+    image.src = url
   })
 
   function autoplay(node: HTMLVideoElement) {

@@ -21,8 +21,3 @@ export function diskNotice(status: AdminStatus): string | null {
 export function canSubmitPassword(password: string): boolean {
   return password.trim() !== ''
 }
-
-/** True for /admin with or without a trailing slash; every other path is the guest page. */
-export function isAdminPath(pathname: string): boolean {
-  return pathname === '/admin' || pathname === '/admin/'
-}

@@ -92,3 +92,15 @@ export async function startPlayback(video: { muted: boolean; play(): Promise<voi
     }
   }
 }
+
+/**
+ * The one image worth fetching ahead while a photo is open: the next item's
+ * viewer image, or a video's poster. Never a video file, never more than one.
+ */
+export function nextPreload(items: readonly GalleryItem[], index: number): string | null {
+  const next = items[index + 1]
+  if (next === undefined) return null
+  if (isVideoItem(next)) return videoPoster(next) ?? null
+  // detailImage never returns an original the browser cannot paint.
+  return detailImage(next)
+}

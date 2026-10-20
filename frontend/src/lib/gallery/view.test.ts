@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GalleryItem } from '../api/media'
-import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster, startPlayback } from './view'
+import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster, startPlayback, nextPreload } from './view'
 
 const base: GalleryItem = {
   id: '123e4567-e89b-42d3-a456-426614174000',
@@ -108,5 +108,30 @@ describe('startPlayback', () => {
   it('gives up silently when playback is impossible even muted', async () => {
     const video = { muted: false, play: vi.fn().mockRejectedValue(new DOMException('no', 'NotAllowedError')) }
     await expect(startPlayback(video)).resolves.toBeUndefined()
+  })
+})
+
+describe('nextPreload (S11)', () => {
+  const photo = (id: string, extra: Partial<GalleryItem> = {}): GalleryItem => ({ ...base, id, detailUrl: `/m/d/${id}_d.jpg`, ...extra })
+
+  it('returns only the next photo detail image', () => {
+    const items = [photo('a'), photo('b'), photo('c')]
+    expect(nextPreload(items, 0)).toBe('/m/d/b_d.jpg')
+    expect(nextPreload(items, 1)).toBe('/m/d/c_d.jpg')
+  })
+
+  it('returns nothing at the last loaded item', () => {
+    expect(nextPreload([photo('a'), photo('b')], 1)).toBeNull()
+  })
+
+  it('never preloads a video file; a video poster is preloaded instead', () => {
+    const video = photo('v', { mime: 'video/mp4', originalUrl: '/m/o/v.mp4', detailUrl: null, thumbUrl: '/m/d/v_t.jpg' })
+    expect(nextPreload([photo('a'), video], 0)).toBe('/m/d/v_t.jpg')
+    expect(nextPreload([photo('a'), { ...video, thumbUrl: null }], 0)).toBeNull()
+  })
+
+  it('never preloads an original the browser cannot paint', () => {
+    const heic = photo('h', { mime: 'image/heic', detailUrl: null, thumbUrl: null, originalUrl: '/m/o/h.heic' })
+    expect(nextPreload([photo('a'), heic], 0)).toBeNull()
   })
 })
