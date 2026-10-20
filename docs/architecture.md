@@ -36,6 +36,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 - **Coste o complejidad:**
   - Hay que abrir los puertos 80 y 443 en **dos sitios**: la lista de seguridad de Oracle y el cortafuegos del propio sistema. Las imágenes de Ubuntu y Oracle Linux en OCI traen reglas de `iptables` restrictivas, y es un fallo clásico.
   - Solo activar la compresión en la aplicación estática, nunca en `/m/*`.
+  - Caché de la aplicación estática: los archivos de `/assets/*` llevan una huella en el nombre y se sirven con `Cache-Control: public, max-age=31536000, immutable`, así que una visita repetida no vuelve a pedirlos. `index.html` (y cualquier ruta de la SPA) va con `no-cache`: el navegador siempre lo revalida y, tras un despliegue, apunta a los archivos nuevos. Un archivo de `/assets/*` que no existe da 404 y nunca la página HTML, para que no quede guardada con un nombre de archivo.
   - Fijar los protocolos en HTTP/1.1 y HTTP/2. HTTP/3 queda desactivado mientras no abramos UDP/443, para que los navegadores no intenten QUIC y tengan que volver atrás.
 - **Descartado: Nginx.** Serviría, pero todo lo que necesitamos va en contra de su configuración por defecto: `client_max_body_size`, `proxy_request_buffering off`, `certbot` aparte y los plazos de espera. Cada uno de esos ajustes es un fallo silencioso si se olvida. **Traefik** también queda fuera: está pensado para enrutar contenedores, no para servir archivos.
 

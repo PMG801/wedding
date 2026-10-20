@@ -158,6 +158,28 @@ if [[ "$download_disposition" != attachment* ]]; then
 fi
 echo 'Media download disposition passed.'
 
+# Static app files (S13 of odd/tasks/mobile-ui-polish.md): hashed assets are cached for a year,
+# the HTML shell is always revalidated, and a missing asset is a 404, never the HTML shell.
+shell_cache="$(curl -sS -o /dev/null -D - "$smoke_base_url/" | tr -d '\r' |
+  awk 'tolower($1) == "cache-control:" { $1 = ""; sub(/^ /, ""); print }')"
+if [[ "$shell_cache" != 'no-cache' ]]; then
+  echo "The HTML shell returned Cache-Control '$shell_cache'; want 'no-cache'." >&2
+  exit 1
+fi
+asset_path="$(curl -fsS "$smoke_base_url/" | grep -o '/assets/index-[^"]*\.js' | head -n 1)"
+asset_cache="$(curl -fsS -o /dev/null -D - "$smoke_base_url$asset_path" | tr -d '\r' |
+  awk 'tolower($1) == "cache-control:" { $1 = ""; sub(/^ /, ""); print }')"
+if [[ -z "$asset_path" || "$asset_cache" != 'public, max-age=31536000, immutable' ]]; then
+  echo "Asset '$asset_path' returned Cache-Control '$asset_cache'; want immutable for a year." >&2
+  exit 1
+fi
+missing_asset="$(curl -sS -o /dev/null -D - -w 'status=%{http_code}' "$smoke_base_url/assets/missing-0000.js" | tr -d '\r')"
+if [[ "$missing_asset" != *'status=404'* ]] || grep -qi '^cache-control: public, max-age=31536000, immutable' <<<"$missing_asset"; then
+  echo "A missing asset must be an uncached 404: $missing_asset" >&2
+  exit 1
+fi
+echo 'Static asset caching passed.'
+
 for path in /m/o/missing.jpg /m/d/missing_t.jpg /m/hidden/x.jpg /m/o/../data/boda.db; do
   missing_status="$(curl -sS --path-as-is -o /dev/null -w '%{http_code}' -H "Cookie: $guest_cookie" "$smoke_base_url$path")"
   if [[ "$missing_status" != 404 ]]; then
