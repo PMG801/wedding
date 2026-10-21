@@ -104,7 +104,7 @@
 <style>
   .nav {
     box-sizing: border-box;
-    height: 3.5rem;
+    height: 4.5rem;
     background: var(--paper);
     border-top: 1px solid var(--line);
     box-shadow: 0 -2px 10px rgb(47 42 38 / 0.06);
@@ -152,13 +152,16 @@
 
   .tab .icon,
   .plus svg {
-    width: 1.25rem;
-    height: 1.25rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .tab .icon {
+    width: 1.5rem;
+    height: 1.5rem;
   }
 
   .tab[aria-pressed='true'] {
@@ -191,8 +194,8 @@
   }
 
   .plus svg {
-    width: 1.2rem;
-    height: 1.2rem;
+    width: 1.6rem;
+    height: 1.6rem;
     stroke-width: 2.2;
   }
 
