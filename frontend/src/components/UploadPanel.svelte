@@ -26,7 +26,10 @@
     <div class="head">
       <div aria-live="polite" class="text">
         {#if summary.remaining > 0}
-          <p class="summary-title">{uploadSummaryLabels.remaining(summary.remaining, summary.total)}</p>
+          <p class="summary-title">
+            <span class="spinner" aria-hidden="true"></span>
+            {uploadSummaryLabels.uploading(summary.done, summary.total)}
+          </p>
           <p class="summary-note">{copy.upload.keepOpen}</p>
         {:else if summary.state === 'finished'}
           <p class="summary-title">{uploadSummaryLabels.finished(summary.done)}</p>
@@ -51,7 +54,16 @@
       </div>
     </div>
     {#if summary.total > 0}
-      <progress max="1" value={summary.progress} aria-label={copy.upload.progress}></progress>
+      <div
+        class="bar"
+        role="progressbar"
+        aria-label={copy.upload.progress}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={Math.round(summary.progress * 100)}
+      >
+        <div class="fill" data-active={summary.remaining > 0} style:width="{summary.progress * 100}%"></div>
+      </div>
     {/if}
   </section>
 {/if}
@@ -135,9 +147,65 @@
     align-items: center;
   }
 
-  progress {
+  .spinner {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 0.95rem;
+    height: 0.95rem;
+    margin-right: 0.4rem;
+    vertical-align: -0.15rem;
+    border: 2px solid var(--line);
+    border-top-color: var(--sage-dark);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .bar {
     width: 100%;
-    height: 0.35rem;
-    accent-color: var(--sage);
+    height: 0.9rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--line);
+  }
+
+  .fill {
+    height: 100%;
+    min-width: 0.9rem;
+    border-radius: 999px;
+    background: var(--sage);
+    transition: width 0.3s ease;
+  }
+
+  .fill[data-active='true'] {
+    background: linear-gradient(90deg, var(--sage) 0%, var(--sage-dark) 50%, var(--sage) 100%);
+    background-size: 200% 100%;
+    animation: sheen 1.6s linear infinite;
+  }
+
+  .strip[data-state='finished'] .fill {
+    background: var(--sage-dark);
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes sheen {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner,
+    .fill[data-active='true'] {
+      animation: none;
+    }
+
+    .fill {
+      transition: none;
+    }
   }
 </style>

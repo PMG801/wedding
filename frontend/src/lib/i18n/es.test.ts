@@ -10,9 +10,10 @@ describe('Spanish UI copy', () => {
     expect(uploadErrorMessages.session_expired).toContain('QR')
   })
 
-  it('words the remaining count without file names', () => {
-    expect(uploadSummaryLabels.remaining(12, 40)).toBe('Quedan 12 de 40 fotos por subir')
-    expect(uploadSummaryLabels.remaining(1, 40)).toBe('Queda 1 foto por subir')
+  it('counts uploaded photos upwards without file names', () => {
+    expect(uploadSummaryLabels.uploading(0, 40)).toBe('Subiendo 0 de 40 fotos')
+    expect(uploadSummaryLabels.uploading(28, 40)).toBe('Subiendo 28 de 40 fotos')
+    expect(uploadSummaryLabels.uploading(0, 1)).toBe('Subiendo 1 foto')
   })
 
   it('pluralises the finished, failed and rejected messages', () => {

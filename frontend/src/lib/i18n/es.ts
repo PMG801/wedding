@@ -93,8 +93,8 @@ export function uploadErrorMessage(code: UploadErrorCode): string {
 }
 
 export const uploadSummaryLabels = {
-  remaining: (remaining: number, total: number): string =>
-    remaining === 1 ? 'Queda 1 foto por subir' : `Quedan ${remaining} de ${total} fotos por subir`,
+  uploading: (done: number, total: number): string =>
+    total === 1 ? 'Subiendo 1 foto' : `Subiendo ${done} de ${total} fotos`,
   finished: (done: number): string => (done === 1 ? '✓ 1 foto subida' : `✓ ${done} fotos subidas`),
   failed: (count: number): string =>
     count === 1 ? 'Una foto no se ha podido subir' : `${count} fotos no se han podido subir`,
