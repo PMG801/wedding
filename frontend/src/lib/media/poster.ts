@@ -1,8 +1,12 @@
 import { browserCodec, createDerivatives, type DecodedImage, type DerivativeCodec, type Derivatives } from './derivatives'
 import { isVideoFile } from './kind'
 
-/** Longest wait for the browser to decode a video frame before the poster is skipped. */
-const POSTER_TIMEOUT_MS = 20_000
+/**
+ * Longest wait for the browser to decode a video frame before the poster is
+ * skipped. A working capture takes well under a second; the guest sees this
+ * wait as a stalled upload when it fails.
+ */
+const POSTER_TIMEOUT_MS = 10_000
 /** Seconds into the clip used for the poster; avoids the usual black first frame. */
 const POSTER_OFFSET_SECONDS = 1
 
@@ -36,7 +40,10 @@ export const videoPosterCodec: DerivativeCodec = {
       video.addEventListener(
         'loadedmetadata',
         () => {
-          video.currentTime = Math.min(POSTER_OFFSET_SECONDS, Math.max(0, video.duration / 10) || 0)
+          const offset = Math.min(POSTER_OFFSET_SECONDS, Math.max(0, video.duration / 10) || 0)
+          void loadFrames(video).then(() => {
+            video.currentTime = offset
+          })
         },
         { once: true }
       )
@@ -51,6 +58,22 @@ export const videoPosterCodec: DerivativeCodec = {
       )
       video.src = url
     })
+  }
+}
+
+/**
+ * Safari on iOS loads no frame data for a video that has never played, so a
+ * seek on it never completes. A muted inline play() unlocks loading. When the
+ * browser refuses playback (for example in Low Power Mode) the seek is still
+ * tried, because other browsers load frames without it.
+ */
+async function loadFrames(video: HTMLVideoElement): Promise<void> {
+  try {
+    await video.play()
+  } catch {
+    // Playback refused: fall through to the seek.
+  } finally {
+    video.pause()
   }
 }
 
