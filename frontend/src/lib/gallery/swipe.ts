@@ -20,3 +20,9 @@ export function swipeDirection(gesture: SwipeGesture): 'previous' | 'next' | nul
   if (distance <= SWIPE_DISTANCE || distance < Math.abs(gesture.dy) * 1.5) return null
   return gesture.dx < 0 ? 'next' : 'previous'
 }
+
+/** Maps a swipe to the gallery view it reveals: left → "Más gustadas", right → "Recientes". */
+export function viewAfterSwipe(current: 'recent' | 'top', direction: 'previous' | 'next'): 'recent' | 'top' | null {
+  if (direction === 'next') return current === 'recent' ? 'top' : null
+  return current === 'top' ? 'recent' : null
+}

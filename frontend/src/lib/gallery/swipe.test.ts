@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { swipeDirection, type SwipeGesture } from './swipe'
+import { swipeDirection, viewAfterSwipe, type SwipeGesture } from './swipe'
 
 const base: SwipeGesture = { dx: 0, dy: 0, maxTouches: 1, zoomed: false, onVideoControls: false }
 
@@ -27,5 +27,17 @@ describe('swipeDirection (S5)', () => {
   it('ignores drags while the page is zoomed in and drags on the video controls', () => {
     expect(swipeDirection({ ...base, dx: -80, zoomed: true })).toBeNull()
     expect(swipeDirection({ ...base, dx: -80, onVideoControls: true })).toBeNull()
+  })
+})
+
+describe('viewAfterSwipe', () => {
+  it('swiping left goes from Recientes to Más gustadas and right goes back', () => {
+    expect(viewAfterSwipe('recent', 'next')).toBe('top')
+    expect(viewAfterSwipe('top', 'previous')).toBe('recent')
+  })
+
+  it('stays put at either end', () => {
+    expect(viewAfterSwipe('top', 'next')).toBeNull()
+    expect(viewAfterSwipe('recent', 'previous')).toBeNull()
   })
 })

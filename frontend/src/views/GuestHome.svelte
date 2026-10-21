@@ -9,6 +9,7 @@
   import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
   import { hasAdminSession } from '../lib/api/moderation'
   import { GalleryFeed, type GalleryFeedState, type GalleryView } from '../lib/gallery/feed'
+  import { swipeDirection, viewAfterSwipe } from '../lib/gallery/swipe'
   import { adoptDeepLink, closeViewer, moveViewer, openViewer } from '../lib/gallery/history'
   import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
@@ -102,6 +103,34 @@
     if (closeViewer(history, homeUrl()) === 'replaced') route = { name: 'home' }
   }
 
+  let swipeStart: { x: number; y: number } | null = null
+  let swipeTouches = 0
+
+  function onTouchStart(event: TouchEvent) {
+    swipeTouches = Math.max(event.touches.length === 1 ? 0 : swipeTouches, event.touches.length)
+    const touch = event.touches[0]
+    swipeStart = event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null
+  }
+
+  function onTouchEnd(event: TouchEvent) {
+    if (event.touches.length > 0) return
+    const first = swipeStart
+    const fingers = swipeTouches
+    swipeStart = null
+    swipeTouches = 0
+    if (first === null || route.name !== 'home') return
+    const touch = event.changedTouches[0]
+    const direction = swipeDirection({
+      dx: touch.clientX - first.x,
+      dy: touch.clientY - first.y,
+      maxTouches: fingers,
+      zoomed: (window.visualViewport?.scale ?? 1) > 1.01,
+      onVideoControls: false
+    })
+    const next = direction === null ? null : viewAfterSwipe(gallery.view, direction)
+    if (next !== null) selectView(next)
+  }
+
   function dismissFinished() {
     dismissed = new Set([...dismissed, ...uploads.filter((item) => item.status === 'done').map((item) => item.id)])
   }
@@ -124,12 +153,16 @@
 
 <PinnedSection onSessionLost={onSessionLost} />
 
-<GalleryGrid
-  feed={gallery}
-  onLoadMore={() => void feed.loadMore()}
-  onOpen={openPhoto}
-  onLike={(id) => void feed.toggleLike(id)}
-/>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- Horizontal swipe switches between Recientes and Más gustadas; vertical scroll stays native. -->
+<div class="swipe-area" ontouchstart={onTouchStart} ontouchend={onTouchEnd} ontouchcancel={() => (swipeStart = null)}>
+  <GalleryGrid
+    feed={gallery}
+    onLoadMore={() => void feed.loadMore()}
+    onOpen={openPhoto}
+    onLike={(id) => void feed.toggleLike(id)}
+  />
+</div>
 
 {#if openIndex >= 0}
   <PhotoDialog
@@ -155,6 +188,10 @@
 <div class="dock-room" aria-hidden="true" style:height="{dockHeight}px"></div>
 
 <style>
+  .swipe-area {
+    touch-action: pan-y pinch-zoom;
+  }
+
   /* Fixed under the page: the strip above the nav, both in the same 960px column. */
   .dock {
     position: fixed;
