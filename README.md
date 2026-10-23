@@ -66,12 +66,6 @@ scripts/smoke.sh
 
 El servidor no compila nada: descarga las imágenes `boda-app` y `boda-web` publicadas por CI en GHCR. El procedimiento completo (aprovisionamiento, HTTPS, copias de seguridad, entrega con `rsync` y operación durante el evento) está en [`docs/runbook.md`](docs/runbook.md).
 
-## Personalizar la marca
-
-El logotipo incluido es genérico. Para usar el de tu boda, sustituye los archivos de [`frontend/public/`](frontend/public/) conservando los nombres: `favicon.svg`, `logo.svg`, `apple-touch-icon.png` (180×180), `icon-192.png` y `icon-512.png`. Los textos («Nuestra boda», título de la pestaña) están en [`frontend/src/lib/i18n/es.ts`](frontend/src/lib/i18n/es.ts), y el título y el nombre de la app instalable, en [`frontend/index.html`](frontend/index.html) y `frontend/public/site.webmanifest`. La paleta está en [`frontend/src/app.css`](frontend/src/app.css).
-
-La «W» del logotipo se ha dibujado con la fuente Fraunces (licencia SIL OFL 1.1), convertida a trazados.
-
 ## Contribuir
 
 Las contribuciones son bienvenidas; lee antes [`CONTRIBUTING.md`](CONTRIBUTING.md). Para vulnerabilidades, sigue [`SECURITY.md`](SECURITY.md) y no abras un issue público.
