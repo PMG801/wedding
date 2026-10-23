@@ -4,7 +4,6 @@ frontend/dist
 .github
 odd
 docs
-deploy/host
 .env
 .env.*
 *.md

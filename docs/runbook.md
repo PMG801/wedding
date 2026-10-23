@@ -381,7 +381,7 @@ rsync -a --info=progress2 --rsync-path='sudo rsync' \
 El repositorio no los automatiza. El operador los prepara y prueba antes del evento, según la decisión L2:
 
 - **Oracle Always Free (reclamación por inactividad):** la política de inactividad de la instancia y su mitigación se gestionan en la consola de OCI. Verifícalas antes del despliegue.
-- **Ampliación del volumen (200 GB a más de 500 GB):** se hace a mano la semana anterior, con los pasos de consola, partición y sistema de archivos. `deploy/host/` solo contiene un marcador; no hay procedimiento en el repositorio.
+- **Ampliación del volumen (200 GB a más de 500 GB):** se hace a mano la semana anterior, con los pasos de consola, partición y sistema de archivos. No hay procedimiento en el repositorio.
 - **Versión estable y rollback:** el pinning de `BODA_TAG` y la vuelta atrás también los gestiona el operador.
 
 ## Arranque local (sin Docker)
