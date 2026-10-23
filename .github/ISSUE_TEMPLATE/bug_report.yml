@@ -1,0 +1,25 @@
+name: Informe de error
+description: Algo no funciona como se espera
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Si es un problema de seguridad, no uses este formulario; sigue SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: Qué ocurre
+      description: Describe el error y lo que esperabas.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducirlo
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Entorno
+      description: Dispositivo, navegador y versión o commit de la aplicación.

@@ -1,0 +1,16 @@
+name: Propuesta de mejora
+description: Una idea dentro del alcance del proyecto (subir y ver fotos y vídeos de una boda)
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema que resuelve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+    validations:
+      required: true
