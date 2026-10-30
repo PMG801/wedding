@@ -25,6 +25,7 @@ export const copy = {
     photoAlt: 'Foto de la boda',
     videoLabel: 'Vídeo',
     viewsLabel: 'Orden de la galería',
+    backToTop: 'Volver arriba',
     views: { recent: 'Recientes', top: 'Más gustadas' }
   },
   ranking: {

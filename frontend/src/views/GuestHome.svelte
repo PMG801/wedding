@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import BackToTop from '../components/BackToTop.svelte'
   import BottomNav from '../components/BottomNav.svelte'
   import GalleryGrid from '../components/GalleryGrid.svelte'
   import PhotoDialog from '../components/PhotoDialog.svelte'
@@ -185,6 +186,7 @@
   />
   <BottomNav view={gallery.view} onViewChange={selectView} onFiles={(files) => queue.add(files)} />
 </div>
+<BackToTop offset={dockHeight} />
 <div class="dock-room" aria-hidden="true" style:height="{dockHeight}px"></div>
 
 <style>
