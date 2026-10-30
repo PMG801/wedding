@@ -41,6 +41,15 @@ const (
 	OrderOldest Order = "oldest"
 )
 
+// Kind restricts a listing to photos or videos; KindAll applies no filter.
+type Kind string
+
+const (
+	KindAll   Kind = ""
+	KindPhoto Kind = "photo"
+	KindVideo Kind = "video"
+)
+
 // Item is one visible, confirmed medium. Derivative URLs are nil until the
 // corresponding JPEG has been published. LikeCount is the stored number of
 // «me gusta»; LikedByMe tells whether the requesting guest identity marked it.
@@ -92,7 +101,14 @@ func (g *Gallery) ListForGuest(ctx context.Context, guestID, cursor string, limi
 // cursor is only valid with the order that issued it: it holds the last
 // (confirmed_at, id) pair, and the next page continues past it in that order.
 func (g *Gallery) ListOrdered(ctx context.Context, guestID, cursor string, limit int, order Order) (Page, error) {
-	return g.list(ctx, "visible", guestID, cursor, limit, order, g.visibleURLs)
+	return g.ListFiltered(ctx, guestID, cursor, limit, order, KindAll)
+}
+
+// ListFiltered is ListOrdered restricted to photos or videos. The filter
+// composes with the order and the keyset cursor: the cursor still holds the last
+// (confirmed_at, id) pair and is only valid with the same order and kind.
+func (g *Gallery) ListFiltered(ctx context.Context, guestID, cursor string, limit int, order Order, kind Kind) (Page, error) {
+	return g.list(ctx, "visible", guestID, cursor, limit, order, kind, g.visibleURLs)
 }
 
 // Top returns the most liked visible media, at most 50 and without a cursor.
@@ -129,13 +145,19 @@ func (g *Gallery) visibleURLs(item *Item, storageName string) error {
 
 // list pages media of one visibility; urls fills each item's URLs. guestID
 // selects which like state is reported; an empty guestID reports none.
-func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, limit int, order Order, urls func(*Item, string) error) (Page, error) {
+func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, limit int, order Order, kind Kind, urls func(*Item, string) error) (Page, error) {
 	if limit <= 0 {
 		return Page{}, errors.New("gallery limit must be positive")
 	}
 	query := "SELECT m.id, m.storage_name, m.media_type, m.confirmed_at, m.like_count, " + likedByGuest +
 		" FROM media m WHERE m.visibility = ?"
 	args := []any{guestID, visibility}
+	switch kind {
+	case KindPhoto:
+		query += " AND m.media_type LIKE 'image/%'"
+	case KindVideo:
+		query += " AND m.media_type LIKE 'video/%'"
+	}
 	if cursor != "" {
 		confirmedAt, id, err := decodeCursor(cursor)
 		if err != nil {

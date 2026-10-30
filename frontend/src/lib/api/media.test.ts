@@ -152,6 +152,16 @@ describe('fetchGalleryPage', () => {
     expect(fetchFn.mock.calls[1][0]).toBe('/api/media?limit=50')
   })
 
+  it('asks for one media type only when a filter is set', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) })
+    await fetchGalleryPage({ kind: 'video', order: 'oldest', fetchFn })
+    await fetchGalleryPage({ kind: 'photo', fetchFn })
+    await fetchGalleryPage({ kind: 'all', fetchFn })
+    expect(fetchFn.mock.calls[0][0]).toBe('/api/media?limit=50&order=oldest&type=video')
+    expect(fetchFn.mock.calls[1][0]).toBe('/api/media?limit=50&type=photo')
+    expect(fetchFn.mock.calls[2][0]).toBe('/api/media?limit=50')
+  })
+
   it('requests the first page and returns typed items', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { items: [item], next_cursor: 'abc' }))
     await expect(fetchGalleryPage({ fetchFn })).resolves.toEqual({

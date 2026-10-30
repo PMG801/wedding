@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { GuestSessionRequiredError, type GalleryItem, type GalleryPage, type LikeResult } from '../api/media'
-import { GalleryFeed, type GalleryFeedState, type GalleryOrder } from './feed'
+import { GalleryFeed, type GalleryFeedState, type GalleryKind, type GalleryOrder } from './feed'
 
 function item(n: number): GalleryItem {
   const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -25,7 +25,7 @@ interface SetupOptions {
   sendLike?: (id: string, liked: boolean) => Promise<LikeResult>
 }
 
-function setup(fetchPage: (cursor: string | null, order: GalleryOrder) => Promise<GalleryPage>, options: SetupOptions = {}) {
+function setup(fetchPage: (cursor: string | null, order: GalleryOrder, kind: GalleryKind) => Promise<GalleryPage>, options: SetupOptions = {}) {
   const states: GalleryFeedState[] = []
   const feed = new GalleryFeed({
     fetchPage,
@@ -57,8 +57,8 @@ describe('GalleryFeed', () => {
     await feed.loadMore()
 
     expect(fetchPage.mock.calls).toEqual([
-      [null, 'newest'],
-      ['c1', 'newest']
+      [null, 'newest', 'all'],
+      ['c1', 'newest', 'all']
     ])
     expect(last().items.map((entry) => entry.confirmedAt)).toEqual([5, 4, 3])
     expect(last()).toEqual(expect.objectContaining({ status: 'idle', hasMore: false }))
@@ -110,7 +110,7 @@ describe('GalleryFeed', () => {
 
     responses.push(page([58], null))
     await feed.loadMore()
-    expect(fetchPage).toHaveBeenLastCalledWith('c9', 'newest')
+    expect(fetchPage).toHaveBeenLastCalledWith('c9', 'newest', 'all')
   })
 
   it('reports errors and a missing guest session, and can recover', async () => {
@@ -321,10 +321,10 @@ describe('GalleryFeed ranking view', () => {
       expect(last().order).toBe('oldest')
       expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2])
       expect(last().hasMore).toBe(true)
-      expect(fetchPage).toHaveBeenLastCalledWith(null, 'oldest')
+      expect(fetchPage).toHaveBeenLastCalledWith(null, 'oldest', 'all')
 
       await feed.loadMore()
-      expect(fetchPage).toHaveBeenLastCalledWith('o1', 'oldest')
+      expect(fetchPage).toHaveBeenLastCalledWith('o1', 'oldest', 'all')
       expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2, 3])
       expect(last().hasMore).toBe(false)
     })
@@ -370,6 +370,51 @@ describe('GalleryFeed ranking view', () => {
       await feed.refresh()
       expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2, 3, 4])
       expect(last().hasMore).toBe(false)
+    })
+  })
+
+  describe('kind filter', () => {
+    it('restarts from the first page with the new kind and keeps the order', async () => {
+      const fetchPage = vi.fn(async (cursor: string | null, _order: GalleryOrder, kind: GalleryKind) =>
+        kind === 'video' ? page([8], null) : page([5, 4], 'c1')
+      )
+      const { feed, last } = setup(fetchPage)
+      await feed.loadMore()
+      await feed.setOrder('oldest')
+      await feed.setKind('video')
+
+      expect(last().kind).toBe('video')
+      expect(last().order).toBe('oldest')
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([8])
+      expect(last().hasMore).toBe(false)
+      expect(fetchPage).toHaveBeenLastCalledWith(null, 'oldest', 'video')
+    })
+
+    it('ignores the current kind and does not reload the ranking', async () => {
+      const fetchPage = vi.fn(async () => page([2, 1], null))
+      const fetchTop = vi.fn(async () => [item(9)])
+      const { feed, last } = setup(fetchPage, { fetchTop })
+      await feed.loadMore()
+      await feed.setKind('all')
+      expect(fetchPage).toHaveBeenCalledTimes(1)
+
+      await feed.setView('top')
+      await feed.setKind('photo')
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([9])
+      expect(fetchTop).toHaveBeenCalledTimes(1)
+    })
+
+    it('drops a late page of the previous kind', async () => {
+      const slow = deferred<GalleryPage>()
+      const fetchPage = vi.fn((_cursor: string | null, _order: GalleryOrder, kind: GalleryKind) =>
+        kind === 'all' ? slow.promise : Promise.resolve(page([1], null))
+      )
+      const { feed, last } = setup(fetchPage)
+      const pending = feed.loadMore()
+      await feed.setKind('photo')
+      slow.resolve(page([9], 'stale'))
+      await pending
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1])
     })
   })
 })

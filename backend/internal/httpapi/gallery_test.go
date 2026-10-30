@@ -149,3 +149,24 @@ func TestGalleryOrderParameter(t *testing.T) {
 		}
 	}
 }
+
+func TestGalleryTypeParameter(t *testing.T) {
+	store, gallery := newHTTPGallery(t)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, gallery)
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+
+	for _, query := range []string{"?type=photo", "?type=video", "?type=video&order=oldest", ""} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, galleryRequest(query, cookie))
+		if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"items":[],"next_cursor":null}` {
+			t.Fatalf("gallery %q response = %d %q; want 200 empty page", query, response.Code, response.Body.String())
+		}
+	}
+	for _, query := range []string{"?type=audio", "?type=", "?type=PHOTO", "?type=photos"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, galleryRequest(query, cookie))
+		if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_type"}` {
+			t.Fatalf("gallery %q response = %d %q; want 400 invalid_type", query, response.Code, response.Body.String())
+		}
+	}
+}

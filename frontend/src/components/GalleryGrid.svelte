@@ -1,6 +1,5 @@
 <script lang="ts">
-  import type { GalleryFeedState, GalleryOrder, GalleryView } from '../lib/gallery/feed'
-  import type { GalleryFeedState, GalleryOrder, GalleryView } from '../lib/gallery/feed'
+  import type { GalleryFeedState, GalleryKind, GalleryOrder, GalleryView } from '../lib/gallery/feed'
   import { computeWindow } from '../lib/gallery/window'
   import { gridImage, isVideoItem, photoHash, shouldShowLikeBadge } from '../lib/gallery/view'
   import { copy, likeLabels } from '../lib/i18n/es'
@@ -10,9 +9,8 @@
     onLoadMore,
     onOpen,
     onLike,
-    onOrderChange
-    onLike,
-    onOrderChange
+    onOrderChange,
+    onKindChange
   }: {
     feed: GalleryFeedState
     onLoadMore: () => void
@@ -21,8 +19,8 @@
     onLike: (id: string) => void
     /** Asks for the other chronological direction (S1); only offered in the Recientes view. */
     onOrderChange: (order: GalleryOrder) => void
-    /** Asks for the other chronological direction (S1); only offered in the Recientes view. */
-    onOrderChange: (order: GalleryOrder) => void
+    /** Filters the chronological feed to photos or videos (S5); only offered in the Recientes view. */
+    onKindChange: (kind: GalleryKind) => void
   } = $props()
 
   function open(event: MouseEvent, id: string): void {
@@ -49,7 +47,8 @@
   let frame = 0
   let shownView: GalleryView | undefined
   let shownOrder: GalleryOrder | undefined
-  let shownOrder: GalleryOrder | undefined
+  let shownKind: GalleryKind | undefined
+  const kinds: GalleryKind[] = ['all', 'photo', 'video']
 
   /** Recomputes the window from the grid's layout. `top` resets it to the first rows (D4). */
   function measure(top: boolean): void {
@@ -102,13 +101,13 @@
   $effect(() => {
     const view = feed.view
     const order = feed.order
-    const order = feed.order
+    const kind = feed.kind
     const total = feed.items.length
-    const switched = (shownView !== undefined && shownView !== view) || (shownOrder !== undefined && shownOrder !== order)
-    const switched = (shownView !== undefined && shownView !== view) || (shownOrder !== undefined && shownOrder !== order)
+    const switched = (shownView !== undefined && shownView !== view) || (shownOrder !== undefined && shownOrder !== order) ||
+      (shownKind !== undefined && shownKind !== kind)
     shownView = view
     shownOrder = order
-    shownOrder = order
+    shownKind = kind
     void total
     measure(switched)
   })
@@ -132,16 +131,21 @@
   <h2 id="gallery-heading">{copy.gallery.heading}</h2>
 
   {#if feed.view === 'recent'}
+    <div class="kinds" role="group" aria-label={copy.gallery.kinds.label}>
+      {#each kinds as kind (kind)}
+        <button class="chip" type="button" aria-pressed={feed.kind === kind} onclick={() => onKindChange(kind)}>
+          {copy.gallery.kinds[kind]}
+        </button>
+      {/each}
+    </div>
     <!-- Order is separate from "Más gustadas" (S6): it only exists in the chronological view. -->
     <button
       class="order"
       type="button"
       onclick={() => onOrderChange(feed.order === 'newest' ? 'oldest' : 'newest')}
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d={feed.order === 'newest' ? 'M12 4v16M6 14l6 6 6-6' : 'M12 20V4M6 10l6-6 6 6'} />
-      </svg>
-      <span>{copy.gallery.order[feed.order]}</span>
+      <span aria-hidden="true">{feed.order === 'newest' ? '↓' : '↑'}</span>
+      {copy.gallery.order[feed.order]}
     </button>
   {/if}
 
@@ -218,6 +222,31 @@
     text-align: center;
   }
 
+  .kinds {
+    display: flex;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .chip {
+    min-height: 44px;
+    padding: 0 1rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .chip[aria-pressed='true'] {
+    border-color: var(--sage-dark);
+    background: var(--sage-dark);
+    color: var(--paper);
+  }
+
   .order {
     display: flex;
     align-items: center;
@@ -232,16 +261,6 @@
     font: inherit;
     font-size: 0.9rem;
     cursor: pointer;
-  }
-
-  .order svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: var(--sage-dark);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
 
   .grid {

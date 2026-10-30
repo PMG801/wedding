@@ -18,7 +18,7 @@ const (
 )
 
 type mediaLister interface {
-	ListOrdered(ctx context.Context, guestID, cursor string, limit int, order media.Order) (media.Page, error)
+	ListFiltered(ctx context.Context, guestID, cursor string, limit int, order media.Order, kind media.Kind) (media.Page, error)
 	Top(ctx context.Context, guestID string) ([]media.Item, error)
 }
 
@@ -38,8 +38,13 @@ func newGalleryHandler(gallery mediaLister) http.Handler {
 			writeUploadError(w, http.StatusBadRequest, "invalid_order")
 			return
 		}
+		kind, ok := parseGalleryKind(r.URL.Query())
+		if !ok {
+			writeUploadError(w, http.StatusBadRequest, "invalid_type")
+			return
+		}
 		guestID, _ := auth.GuestIDFromContext(r.Context())
-		page, err := gallery.ListOrdered(r.Context(), guestID, r.URL.Query().Get("cursor"), limit, order)
+		page, err := gallery.ListFiltered(r.Context(), guestID, r.URL.Query().Get("cursor"), limit, order, kind)
 		if err != nil {
 			if errors.Is(err, media.ErrInvalidCursor) {
 				writeUploadError(w, http.StatusBadRequest, "invalid_cursor")
@@ -86,6 +91,18 @@ func parseGalleryOrder(query url.Values) (media.Order, bool) {
 	switch order := media.Order(query.Get("order")); order {
 	case media.OrderNewest, media.OrderOldest:
 		return order, true
+	}
+	return "", false
+}
+
+// parseGalleryKind reads the optional media type filter; absent means photos and videos.
+func parseGalleryKind(query url.Values) (media.Kind, bool) {
+	if !query.Has("type") {
+		return media.KindAll, true
+	}
+	switch kind := media.Kind(query.Get("type")); kind {
+	case media.KindPhoto, media.KindVideo:
+		return kind, true
 	}
 	return "", false
 }

@@ -138,17 +138,21 @@ export async function fetchGalleryPage({
   cursor = null,
   limit = 50,
   order = 'newest',
+  kind = 'all',
   fetchFn = fetch
 }: {
   cursor?: string | null
   limit?: number
   /** Chronological direction; a cursor is only valid with the order that issued it. */
   order?: 'newest' | 'oldest'
+  /** Restricts the feed to photos or videos; a cursor is only valid with the kind that issued it. */
+  kind?: 'all' | 'photo' | 'video'
   fetchFn?: typeof fetch
 } = {}): Promise<GalleryPage> {
   let url = `/api/media?limit=${limit}`
   if (cursor !== null) url += `&cursor=${encodeURIComponent(cursor)}`
   if (order === 'oldest') url += '&order=oldest'
+  if (kind !== 'all') url += `&type=${kind}`
   const response = await fetchFn(url, { credentials: 'same-origin' })
   if (response.status === 401) throw new GuestSessionRequiredError()
   if (!response.ok) throw new Error(`Gallery request failed with HTTP ${response.status}`)

@@ -187,3 +187,52 @@ func TestListOrderedNewestMatchesList(t *testing.T) {
 		t.Fatalf("newest IDs = %v; want [%s %s]", got, idB, idA)
 	}
 }
+
+func insertVideo(t *testing.T, database *sql.DB, id string, confirmedAt int64) {
+	t.Helper()
+	_, err := database.Exec("INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at, visibility) VALUES (?, ?, 'video/mp4', 3, ?, 'visible')",
+		id, "name_"+id+".mp4", confirmedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListFilteredByKindComposesWithOrderAndCursor(t *testing.T) {
+	gallery, database, _ := newTestGallery(t)
+	insertMedia(t, database, idA, 1000, "visible")
+	insertVideo(t, database, idB, 2000)
+	insertMedia(t, database, idC, 3000, "visible")
+	insertVideo(t, database, idD, 4000)
+	insertMedia(t, database, idE, 5000, "hidden")
+
+	photos, err := gallery.ListFiltered(context.Background(), "", "", 10, OrderNewest, KindPhoto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(photos); len(got) != 2 || got[0] != idC || got[1] != idA {
+		t.Fatalf("photo IDs = %v; want [%s %s]", got, idC, idA)
+	}
+
+	first, err := gallery.ListFiltered(context.Background(), "", "", 1, OrderOldest, KindVideo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(first); len(got) != 1 || got[0] != idB || first.NextCursor == nil {
+		t.Fatalf("first video page = %v cursor %v; want [%s] and a cursor", got, first.NextCursor, idB)
+	}
+	second, err := gallery.ListFiltered(context.Background(), "", *first.NextCursor, 1, OrderOldest, KindVideo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(second); len(got) != 1 || got[0] != idD || second.NextCursor != nil {
+		t.Fatalf("second video page = %v cursor %v; want [%s] and no cursor", got, second.NextCursor, idD)
+	}
+
+	all, err := gallery.ListFiltered(context.Background(), "", "", 10, OrderNewest, KindAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(all); len(got) != 4 {
+		t.Fatalf("unfiltered IDs = %v; want all four visible media", got)
+	}
+}

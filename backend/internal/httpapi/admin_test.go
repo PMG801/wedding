@@ -408,7 +408,7 @@ func TestAdminLoginDelayIsCappedAtThirtySeconds(t *testing.T) {
 // fakeGallery serves an empty confirmed page so gallery reads can be checked while uploads are paused.
 type fakeGallery struct{}
 
-func (fakeGallery) ListOrdered(context.Context, string, string, int, media.Order) (media.Page, error) {
+func (fakeGallery) ListFiltered(context.Context, string, string, int, media.Order, media.Kind) (media.Page, error) {
 	return media.Page{Items: []media.Item{}}, nil
 }
 

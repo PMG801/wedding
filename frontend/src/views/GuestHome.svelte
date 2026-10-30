@@ -20,7 +20,7 @@
 
   let uploads = $state<readonly UploadItem[]>([])
   let dismissed = $state(new Set<string>())
-  let gallery = $state<GalleryFeedState>({ view: 'recent', order: 'newest', items: [], status: 'idle', hasMore: true, likeFailedId: null })
+  let gallery = $state<GalleryFeedState>({ view: 'recent', order: 'newest', kind: 'all', items: [], status: 'idle', hasMore: true, likeFailedId: null })
   let route = $state<Route>(parseRoute(location.hash))
   let canHide = $state(false)
   // Height of the fixed bottom dock (strip + nav); the page keeps that much room at its end (S8).
@@ -30,7 +30,7 @@
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
   const feed = new GalleryFeed({
-    fetchPage: (cursor, order) => fetchGalleryPage({ cursor, order }),
+    fetchPage: (cursor, order, kind) => fetchGalleryPage({ cursor, order, kind }),
     fetchTop: () => fetchTopMedia(),
     sendLike: (id, liked) => setLike(id, liked),
     onChange: (state) => {
@@ -141,6 +141,12 @@
     document.getElementById('gallery')?.scrollIntoView({ behavior: smooth && !reduced ? 'smooth' : 'auto', block: 'start' })
   }
 
+  /** A new order or filter starts again at the top, instantly, like a view switch. */
+  function restartAtTop(change: Promise<void>) {
+    scrollToGallery(false)
+    void change
+  }
+
   /**
    * The active tab scrolls back to the gallery top. Another tab switches the view and starts
    * again at the top, instantly, so the window (D4) and the scroll position agree.
@@ -162,10 +168,8 @@
     onLoadMore={() => void feed.loadMore()}
     onOpen={openPhoto}
     onLike={(id) => void feed.toggleLike(id)}
-    onOrderChange={(order) => {
-      scrollToGallery(false)
-      void feed.setOrder(order)
-    }}
+    onKindChange={(kind) => restartAtTop(feed.setKind(kind))}
+    onOrderChange={(order) => restartAtTop(feed.setOrder(order))}
   />
 </div>
 

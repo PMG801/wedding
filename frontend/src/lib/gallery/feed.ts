@@ -3,6 +3,8 @@ import { GuestSessionRequiredError, type GalleryItem, type GalleryPage, type Lik
 export type GalleryView = 'recent' | 'top'
 /** Direction of the chronological feed; the ranking view has no order. */
 export type GalleryOrder = 'newest' | 'oldest'
+/** Media type filter of the chronological feed (S5). */
+export type GalleryKind = 'all' | 'photo' | 'video'
 export type FeedStatus = 'idle' | 'loading' | 'error' | 'session_required'
 
 export interface GalleryFeedState {
@@ -10,6 +12,8 @@ export interface GalleryFeedState {
   view: GalleryView
   /** Direction of the chronological feed (S1); kept while the ranking is shown. */
   order: GalleryOrder
+  /** Media type filter of the chronological feed (S5); kept while the ranking is shown. */
+  kind: GalleryKind
   items: GalleryItem[]
   status: FeedStatus
   /** Always false in the ranking view, which has no further pages. */
@@ -19,7 +23,7 @@ export interface GalleryFeedState {
 }
 
 export interface GalleryFeedOptions {
-  fetchPage: (cursor: string | null, order: GalleryOrder) => Promise<GalleryPage>
+  fetchPage: (cursor: string | null, order: GalleryOrder, kind: GalleryKind) => Promise<GalleryPage>
   fetchTop: () => Promise<GalleryItem[]>
   sendLike: (id: string, liked: boolean) => Promise<LikeResult>
   onChange: (state: GalleryFeedState) => void
@@ -36,6 +40,7 @@ export class GalleryFeed {
   readonly #options: GalleryFeedOptions
   #view: GalleryView = 'recent'
   #order: GalleryOrder = 'newest'
+  #kind: GalleryKind = 'all'
   // Bumped when the order changes so a page requested under the old order is dropped on arrival.
   #generation = 0
   #items: GalleryItem[] = []
@@ -56,6 +61,7 @@ export class GalleryFeed {
     return {
       view: this.#view,
       order: this.#order,
+      kind: this.#kind,
       items: [...(recent ? this.#items : this.#top)],
       status: recent ? this.#recentStatus : this.#topStatus,
       hasMore: recent && this.#hasMore,
@@ -93,11 +99,22 @@ export class GalleryFeed {
 
   /**
    * Switches the chronological feed between newest-first and oldest-first (S1, S6). Cursors belong
-   * to one order, so the list starts again from the first page. The ranking view is unaffected.
+   * to one order and kind, so the list starts again from the first page. The ranking view is unaffected.
    */
   async setOrder(order: GalleryOrder): Promise<void> {
     if (order === this.#order) return
     this.#order = order
+    await this.#restart()
+  }
+
+  /** Filters the chronological feed to photos or videos (S5); like the order, it restarts the list. */
+  async setKind(kind: GalleryKind): Promise<void> {
+    if (kind === this.#kind) return
+    this.#kind = kind
+    await this.#restart()
+  }
+
+  async #restart(): Promise<void> {
     this.#generation += 1
     this.#items = []
     this.#cursor = null
@@ -213,7 +230,7 @@ export class GalleryFeed {
     this.#emit()
     const generation = this.#generation
     try {
-      const page = await this.#options.fetchPage(cursor, this.#order)
+      const page = await this.#options.fetchPage(cursor, this.#order, this.#kind)
       // A page for a previous order must not clear the status of the current one.
       if (generation === this.#generation) this.#recentStatus = 'idle'
       return page
