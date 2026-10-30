@@ -31,6 +31,16 @@ const topQuery = "SELECT m.id, m.storage_name, m.media_type, m.confirmed_at, m.l
 	" FROM media m WHERE m.visibility = 'visible' AND m.like_count > 0" +
 	" ORDER BY m.like_count DESC, m.confirmed_at DESC, m.id DESC LIMIT ?"
 
+// Order is the chronological direction of a gallery listing.
+type Order string
+
+const (
+	// OrderNewest lists the most recently confirmed media first (the default).
+	OrderNewest Order = "newest"
+	// OrderOldest lists the earliest confirmed media first.
+	OrderOldest Order = "oldest"
+)
+
 // Item is one visible, confirmed medium. Derivative URLs are nil until the
 // corresponding JPEG has been published. LikeCount is the stored number of
 // «me gusta»; LikedByMe tells whether the requesting guest identity marked it.
@@ -75,7 +85,14 @@ func (g *Gallery) List(ctx context.Context, cursor string, limit int) (Page, err
 // first, with the like state for guestID. Keyset pagination on (confirmed_at,
 // id) keeps pages stable while new uploads arrive.
 func (g *Gallery) ListForGuest(ctx context.Context, guestID, cursor string, limit int) (Page, error) {
-	return g.list(ctx, "visible", guestID, cursor, limit, g.visibleURLs)
+	return g.ListOrdered(ctx, guestID, cursor, limit, OrderNewest)
+}
+
+// ListOrdered is ListForGuest with an explicit chronological direction. A
+// cursor is only valid with the order that issued it: it holds the last
+// (confirmed_at, id) pair, and the next page continues past it in that order.
+func (g *Gallery) ListOrdered(ctx context.Context, guestID, cursor string, limit int, order Order) (Page, error) {
+	return g.list(ctx, "visible", guestID, cursor, limit, order, g.visibleURLs)
 }
 
 // Top returns the most liked visible media, at most 50 and without a cursor.
@@ -112,7 +129,7 @@ func (g *Gallery) visibleURLs(item *Item, storageName string) error {
 
 // list pages media of one visibility; urls fills each item's URLs. guestID
 // selects which like state is reported; an empty guestID reports none.
-func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, limit int, urls func(*Item, string) error) (Page, error) {
+func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, limit int, order Order, urls func(*Item, string) error) (Page, error) {
 	if limit <= 0 {
 		return Page{}, errors.New("gallery limit must be positive")
 	}
@@ -124,10 +141,12 @@ func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, 
 		if err != nil {
 			return Page{}, err
 		}
-		query += " AND (m.confirmed_at < ? OR (m.confirmed_at = ? AND m.id < ?))"
+		compare, _ := orderSQL(order)
+		query += " AND (m.confirmed_at " + compare + " ? OR (m.confirmed_at = ? AND m.id " + compare + " ?))"
 		args = append(args, confirmedAt, confirmedAt, id)
 	}
-	query += " ORDER BY m.confirmed_at DESC, m.id DESC LIMIT ?"
+	_, direction := orderSQL(order)
+	query += " ORDER BY m.confirmed_at " + direction + ", m.id " + direction + " LIMIT ?"
 	args = append(args, limit+1)
 
 	rows, err := g.db.QueryContext(ctx, query, args...)
@@ -154,6 +173,15 @@ func (g *Gallery) list(ctx context.Context, visibility, guestID, cursor string, 
 		}
 	}
 	return page, nil
+}
+
+// orderSQL returns the keyset comparison operator and the ORDER BY direction
+// for an order. Both are fixed strings, never caller input.
+func orderSQL(order Order) (compare, direction string) {
+	if order == OrderOldest {
+		return ">", "ASC"
+	}
+	return "<", "DESC"
 }
 
 // scanItems reads rows selected as id, storage_name, media_type,

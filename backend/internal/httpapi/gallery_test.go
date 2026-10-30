@@ -128,3 +128,24 @@ func newHTTPGallery(t *testing.T) (*upload.Store, *media.Gallery) {
 	}
 	return store, gallery
 }
+
+func TestGalleryOrderParameter(t *testing.T) {
+	store, gallery := newHTTPGallery(t)
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, gallery)
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+
+	for _, order := range []string{"?order=oldest", "?order=newest", ""} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, galleryRequest(order, cookie))
+		if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"items":[],"next_cursor":null}` {
+			t.Fatalf("gallery %q response = %d %q; want 200 empty page", order, response.Code, response.Body.String())
+		}
+	}
+	for _, order := range []string{"?order=sideways", "?order=", "?order=OLDEST"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, galleryRequest(order, cookie))
+		if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_order"}` {
+			t.Fatalf("gallery %q response = %d %q; want 400 invalid_order", order, response.Code, response.Body.String())
+		}
+	}
+}

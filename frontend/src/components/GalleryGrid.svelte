@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GalleryFeedState, GalleryView } from '../lib/gallery/feed'
+  import type { GalleryFeedState, GalleryOrder, GalleryView } from '../lib/gallery/feed'
   import { computeWindow } from '../lib/gallery/window'
   import { gridImage, isVideoItem, photoHash, shouldShowLikeBadge } from '../lib/gallery/view'
   import { copy, likeLabels } from '../lib/i18n/es'
@@ -8,13 +8,16 @@
     feed,
     onLoadMore,
     onOpen,
-    onLike
+    onLike,
+    onOrderChange
   }: {
     feed: GalleryFeedState
     onLoadMore: () => void
     /** Opens the viewer for an item; plain link behaviour is kept for modified clicks. */
     onOpen: (id: string) => void
     onLike: (id: string) => void
+    /** Asks for the other chronological direction (S1); only offered in the Recientes view. */
+    onOrderChange: (order: GalleryOrder) => void
   } = $props()
 
   function open(event: MouseEvent, id: string): void {
@@ -40,6 +43,7 @@
   const visibleItems = $derived(feed.items.slice(slice.start, slice.end))
   let frame = 0
   let shownView: GalleryView | undefined
+  let shownOrder: GalleryOrder | undefined
 
   /** Recomputes the window from the grid's layout. `top` resets it to the first rows (D4). */
   function measure(top: boolean): void {
@@ -91,9 +95,11 @@
   // Opening the photo dialog does not change the list or the scroll, so the window stays put (D3).
   $effect(() => {
     const view = feed.view
+    const order = feed.order
     const total = feed.items.length
-    const switched = shownView !== undefined && shownView !== view
+    const switched = (shownView !== undefined && shownView !== view) || (shownOrder !== undefined && shownOrder !== order)
     shownView = view
+    shownOrder = order
     void total
     measure(switched)
   })
@@ -115,6 +121,20 @@
 
 <section id="gallery" class="gallery" aria-labelledby="gallery-heading">
   <h2 id="gallery-heading">{copy.gallery.heading}</h2>
+
+  {#if feed.view === 'recent'}
+    <!-- Order is separate from "Más gustadas" (S6): it only exists in the chronological view. -->
+    <button
+      class="order"
+      type="button"
+      onclick={() => onOrderChange(feed.order === 'newest' ? 'oldest' : 'newest')}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d={feed.order === 'newest' ? 'M12 4v16M6 14l6 6 6-6' : 'M12 20V4M6 10l6-6 6 6'} />
+      </svg>
+      <span>{copy.gallery.order[feed.order]}</span>
+    </button>
+  {/if}
 
   {#if feed.likeFailedId !== null}
     <p class="notice" role="alert">{copy.likes.failed}</p>
@@ -183,6 +203,32 @@
 <style>
   .gallery h2 {
     text-align: center;
+  }
+
+  .order {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 44px;
+    margin: 0 auto 0.5rem;
+    padding: 0 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .order svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: var(--sage-dark);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .grid {

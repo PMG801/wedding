@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/PMG801/wedding/internal/auth"
@@ -17,7 +18,7 @@ const (
 )
 
 type mediaLister interface {
-	ListForGuest(ctx context.Context, guestID, cursor string, limit int) (media.Page, error)
+	ListOrdered(ctx context.Context, guestID, cursor string, limit int, order media.Order) (media.Page, error)
 	Top(ctx context.Context, guestID string) ([]media.Item, error)
 }
 
@@ -32,8 +33,13 @@ func newGalleryHandler(gallery mediaLister) http.Handler {
 			writeUploadError(w, http.StatusBadRequest, "invalid_limit")
 			return
 		}
+		order, ok := parseGalleryOrder(r.URL.Query())
+		if !ok {
+			writeUploadError(w, http.StatusBadRequest, "invalid_order")
+			return
+		}
 		guestID, _ := auth.GuestIDFromContext(r.Context())
-		page, err := gallery.ListForGuest(r.Context(), guestID, r.URL.Query().Get("cursor"), limit)
+		page, err := gallery.ListOrdered(r.Context(), guestID, r.URL.Query().Get("cursor"), limit, order)
 		if err != nil {
 			if errors.Is(err, media.ErrInvalidCursor) {
 				writeUploadError(w, http.StatusBadRequest, "invalid_cursor")
@@ -70,6 +76,18 @@ func newTopHandler(gallery mediaLister) http.Handler {
 			Items []media.Item `json:"items"`
 		}{Items: items})
 	})
+}
+
+// parseGalleryOrder reads the optional chronological order; absent means newest first.
+func parseGalleryOrder(query url.Values) (media.Order, bool) {
+	if !query.Has("order") {
+		return media.OrderNewest, true
+	}
+	switch order := media.Order(query.Get("order")); order {
+	case media.OrderNewest, media.OrderOldest:
+		return order, true
+	}
+	return "", false
 }
 
 // parseGalleryLimit reads the optional page size shared by gallery listings.

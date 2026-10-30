@@ -141,3 +141,49 @@ func ids(page Page) []string {
 	}
 	return result
 }
+
+func TestListOrderedOldestFirstWithStableCursor(t *testing.T) {
+	gallery, database, _ := newTestGallery(t)
+	insertMedia(t, database, idA, 1000, "visible")
+	insertMedia(t, database, idB, 2000, "visible")
+	insertMedia(t, database, idC, 2000, "visible")
+	insertMedia(t, database, idD, 500, "hidden")
+
+	first, err := gallery.ListOrdered(context.Background(), "", "", 2, OrderOldest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(first); len(got) != 2 || got[0] != idA || got[1] != idB {
+		t.Fatalf("first page IDs = %v; want [%s %s]", got, idA, idB)
+	}
+	if first.NextCursor == nil {
+		t.Fatal("first page next cursor is nil; want a cursor")
+	}
+
+	// A newer upload lands at the end of the oldest-first feed and must not shift the next page.
+	insertMedia(t, database, idE, 4000, "visible")
+	second, err := gallery.ListOrdered(context.Background(), "", *first.NextCursor, 2, OrderOldest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(second); len(got) != 2 || got[0] != idC || got[1] != idE {
+		t.Fatalf("second page IDs = %v; want [%s %s]", got, idC, idE)
+	}
+	if second.NextCursor != nil {
+		t.Fatalf("last page next cursor = %q; want nil", *second.NextCursor)
+	}
+}
+
+func TestListOrderedNewestMatchesList(t *testing.T) {
+	gallery, database, _ := newTestGallery(t)
+	insertMedia(t, database, idA, 1000, "visible")
+	insertMedia(t, database, idB, 2000, "visible")
+
+	page, err := gallery.ListOrdered(context.Background(), "", "", 10, OrderNewest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(page); len(got) != 2 || got[0] != idB || got[1] != idA {
+		t.Fatalf("newest IDs = %v; want [%s %s]", got, idB, idA)
+	}
+}

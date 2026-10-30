@@ -20,7 +20,7 @@
 
   let uploads = $state<readonly UploadItem[]>([])
   let dismissed = $state(new Set<string>())
-  let gallery = $state<GalleryFeedState>({ view: 'recent', items: [], status: 'idle', hasMore: true, likeFailedId: null })
+  let gallery = $state<GalleryFeedState>({ view: 'recent', order: 'newest', items: [], status: 'idle', hasMore: true, likeFailedId: null })
   let route = $state<Route>(parseRoute(location.hash))
   let canHide = $state(false)
   // Height of the fixed bottom dock (strip + nav); the page keeps that much room at its end (S8).
@@ -30,7 +30,7 @@
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
   const feed = new GalleryFeed({
-    fetchPage: (cursor) => fetchGalleryPage({ cursor }),
+    fetchPage: (cursor, order) => fetchGalleryPage({ cursor, order }),
     fetchTop: () => fetchTopMedia(),
     sendLike: (id, liked) => setLike(id, liked),
     onChange: (state) => {
@@ -162,6 +162,10 @@
     onLoadMore={() => void feed.loadMore()}
     onOpen={openPhoto}
     onLike={(id) => void feed.toggleLike(id)}
+    onOrderChange={(order) => {
+      scrollToGallery(false)
+      void feed.setOrder(order)
+    }}
   />
 </div>
 

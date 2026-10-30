@@ -126,9 +126,9 @@ Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (9
 
 Los errores JSON usan `Content-Type: application/json; charset=utf-8` y el formato `{"error":"<código>"}` seguido de salto de línea. La capacidad máxima simultánea se configura con `BODA_MAX_CONCURRENT_UPLOADS` (30 por defecto); una petición que encuentre todos los espacios ocupados se rechaza sin esperar ni leer su cuerpo.
 
-### `GET /api/media?cursor=<opaco>&limit=50` — galería
+### `GET /api/media?cursor=<opaco>&limit=50&order=newest` — galería
 
-La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devuelve solo medios confirmados y visibles, del más reciente al más antiguo. `limit` es opcional (entre 1 y 100; 50 por defecto). `cursor` es opcional y opaco: el cliente debe reenviar sin modificar el valor `next_cursor` de la página anterior. La paginación usa el par `(confirmed_at, id)`, por lo que las subidas nuevas no desplazan las páginas siguientes.
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devuelve solo medios confirmados y visibles. `order` es opcional: `newest` (por defecto) los devuelve del más reciente al más antiguo y `oldest` del más antiguo al más reciente; cualquier otro valor, incluido vacío, devuelve `400 {"error":"invalid_order"}`. El cursor solo vale con el `order` que lo emitió: al cambiar de orden hay que empezar de nuevo sin cursor. `limit` es opcional (entre 1 y 100; 50 por defecto). `cursor` es opcional y opaco: el cliente debe reenviar sin modificar el valor `next_cursor` de la página anterior. La paginación usa el par `(confirmed_at, id)`, por lo que las subidas nuevas no desplazan las páginas siguientes.
 
 ```json
 {
@@ -153,7 +153,7 @@ La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devue
 | Estado | Significado y respuesta |
 | --- | --- |
 | `200 OK` | Página JSON con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`. Una galería vacía devuelve `{"items":[],"next_cursor":null}`. |
-| `400 Bad Request` | `limit` fuera de rango o no numérico (`{"error":"invalid_limit"}`), o cursor no emitido por el servidor (`{"error":"invalid_cursor"}`). |
+| `400 Bad Request` | `limit` fuera de rango o no numérico (`{"error":"invalid_limit"}`), `order` desconocido (`{"error":"invalid_order"}`), o cursor no emitido por el servidor (`{"error":"invalid_cursor"}`). |
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `500 Internal Server Error` | Error interno al leer la galería (`{"error":"gallery_failed"}`). |
 | `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |

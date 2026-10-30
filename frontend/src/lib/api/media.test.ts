@@ -144,6 +144,14 @@ describe('fetchGalleryPage', () => {
     liked_by_me: true
   }
 
+  it('asks for the oldest-first order only when requested', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) })
+    await fetchGalleryPage({ order: 'oldest', cursor: 'c', fetchFn })
+    await fetchGalleryPage({ order: 'newest', fetchFn })
+    expect(fetchFn.mock.calls[0][0]).toBe('/api/media?limit=50&cursor=c&order=oldest')
+    expect(fetchFn.mock.calls[1][0]).toBe('/api/media?limit=50')
+  })
+
   it('requests the first page and returns typed items', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { items: [item], next_cursor: 'abc' }))
     await expect(fetchGalleryPage({ fetchFn })).resolves.toEqual({

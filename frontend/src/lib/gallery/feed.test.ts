@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { GuestSessionRequiredError, type GalleryItem, type GalleryPage, type LikeResult } from '../api/media'
-import { GalleryFeed, type GalleryFeedState } from './feed'
+import { GalleryFeed, type GalleryFeedState, type GalleryOrder } from './feed'
 
 function item(n: number): GalleryItem {
   const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -25,7 +25,7 @@ interface SetupOptions {
   sendLike?: (id: string, liked: boolean) => Promise<LikeResult>
 }
 
-function setup(fetchPage: (cursor: string | null) => Promise<GalleryPage>, options: SetupOptions = {}) {
+function setup(fetchPage: (cursor: string | null, order: GalleryOrder) => Promise<GalleryPage>, options: SetupOptions = {}) {
   const states: GalleryFeedState[] = []
   const feed = new GalleryFeed({
     fetchPage,
@@ -56,7 +56,10 @@ describe('GalleryFeed', () => {
     await feed.loadMore()
     await feed.loadMore()
 
-    expect(fetchPage.mock.calls).toEqual([[null], ['c1']])
+    expect(fetchPage.mock.calls).toEqual([
+      [null, 'newest'],
+      ['c1', 'newest']
+    ])
     expect(last().items.map((entry) => entry.confirmedAt)).toEqual([5, 4, 3])
     expect(last()).toEqual(expect.objectContaining({ status: 'idle', hasMore: false }))
   })
@@ -107,7 +110,7 @@ describe('GalleryFeed', () => {
 
     responses.push(page([58], null))
     await feed.loadMore()
-    expect(fetchPage).toHaveBeenLastCalledWith('c9')
+    expect(fetchPage).toHaveBeenLastCalledWith('c9', 'newest')
   })
 
   it('reports errors and a missing guest session, and can recover', async () => {
@@ -303,5 +306,70 @@ describe('GalleryFeed ranking view', () => {
 
     feed.remove(top.id)
     expect(last().items.map((entry) => entry.id)).toEqual([item(2).id])
+  })
+
+  describe('order', () => {
+    it('starts newest first and restarts from the first page when switched to oldest', async () => {
+      const fetchPage = vi.fn(async (cursor: string | null, order: GalleryOrder) =>
+        order === 'newest' ? page([5, 4], 'n1') : cursor === null ? page([1, 2], 'o1') : page([3], null)
+      )
+      const { feed, last } = setup(fetchPage)
+      await feed.loadMore()
+      expect(last().order).toBe('newest')
+
+      await feed.setOrder('oldest')
+      expect(last().order).toBe('oldest')
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2])
+      expect(last().hasMore).toBe(true)
+      expect(fetchPage).toHaveBeenLastCalledWith(null, 'oldest')
+
+      await feed.loadMore()
+      expect(fetchPage).toHaveBeenLastCalledWith('o1', 'oldest')
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2, 3])
+      expect(last().hasMore).toBe(false)
+    })
+
+    it('ignores a switch to the current order and keeps the ranking untouched', async () => {
+      const fetchPage = vi.fn(async () => page([2, 1], null))
+      const fetchTop = vi.fn(async () => [item(9)])
+      const { feed, last } = setup(fetchPage, { fetchTop })
+      await feed.loadMore()
+      await feed.setOrder('newest')
+      expect(fetchPage).toHaveBeenCalledTimes(1)
+
+      await feed.setView('top')
+      await feed.setOrder('oldest')
+      expect(last().view).toBe('top')
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([9])
+    })
+
+    it('drops a late page that belongs to the previous order', async () => {
+      const slow = deferred<GalleryPage>()
+      const fetchPage = vi.fn((cursor: string | null, order: GalleryOrder) =>
+        order === 'newest' ? slow.promise : Promise.resolve(page([1], null))
+      )
+      const { feed, last } = setup(fetchPage)
+      const pending = feed.loadMore()
+      await feed.setOrder('oldest')
+      slow.resolve(page([9, 8], 'stale'))
+      await pending
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1])
+    })
+
+    it('refresh in oldest order re-reads every page so new uploads show at the end', async () => {
+      let uploaded = false
+      const fetchPage = vi.fn(async (cursor: string | null) =>
+        cursor === null ? page([1, 2], 'o1') : page(uploaded ? [3, 4] : [3], null)
+      )
+      const { feed, last } = setup(fetchPage)
+      await feed.setOrder('oldest')
+      await feed.loadMore()
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2, 3])
+
+      uploaded = true
+      await feed.refresh()
+      expect(last().items.map((entry) => entry.confirmedAt)).toEqual([1, 2, 3, 4])
+      expect(last().hasMore).toBe(false)
+    })
   })
 })

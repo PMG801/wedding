@@ -137,10 +137,18 @@ function parseErrorCode(text: string): string | null {
 export async function fetchGalleryPage({
   cursor = null,
   limit = 50,
+  order = 'newest',
   fetchFn = fetch
-}: { cursor?: string | null; limit?: number; fetchFn?: typeof fetch } = {}): Promise<GalleryPage> {
+}: {
+  cursor?: string | null
+  limit?: number
+  /** Chronological direction; a cursor is only valid with the order that issued it. */
+  order?: 'newest' | 'oldest'
+  fetchFn?: typeof fetch
+} = {}): Promise<GalleryPage> {
   let url = `/api/media?limit=${limit}`
   if (cursor !== null) url += `&cursor=${encodeURIComponent(cursor)}`
+  if (order === 'oldest') url += '&order=oldest'
   const response = await fetchFn(url, { credentials: 'same-origin' })
   if (response.status === 401) throw new GuestSessionRequiredError()
   if (!response.ok) throw new Error(`Gallery request failed with HTTP ${response.status}`)
