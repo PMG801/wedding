@@ -37,6 +37,13 @@ describe('Spanish UI copy', () => {
     expect(copy.ranking.empty).toBe('Todavía no hay fotos con me gusta')
   })
 
+  it('labels both chronological gallery orders', () => {
+    expect(copy.gallery.order).toEqual({
+      newest: 'Orden: más recientes primero',
+      oldest: 'Orden: más antiguas primero'
+    })
+  })
+
   it('labels the bottom navigation upload slot with a short word', () => {
     expect(copy.upload.navLabel).toBe('Subir')
     expect(copy.upload.button).toBe('Subir fotos y vídeos')
