@@ -20,6 +20,7 @@ type handlerOptions struct {
 	likes              likeStore
 	pinned             pinnedStore
 	resumable          *upload.Resumable
+	carousel           carouselReader
 }
 
 // WithResumable mounts the tus endpoint for original media at /api/uploads/ (ADR-0014).
@@ -57,6 +58,7 @@ func NewHandler(eventToken string, sessionKey []byte, photos derivativePhotoUplo
 	registerAdminRoutes(mux, sessionKey, options)
 	registerLikeRoutes(mux, sessionKey, options.likes)
 	registerPinnedRoutes(mux, sessionKey, options.pinned)
+	registerCarouselRoutes(mux, sessionKey, options.carousel)
 	mux.Handle("GET /api/media", auth.RequireGuestSession(sessionKey, newGalleryHandler(gallery)))
 	mux.Handle("GET /api/media/top", auth.RequireGuestSession(sessionKey, newTopHandler(gallery)))
 	mux.Handle("GET /api/session", auth.RequireGuestSession(sessionKey, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
