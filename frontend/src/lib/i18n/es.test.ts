@@ -39,8 +39,8 @@ describe('Spanish UI copy', () => {
 
   it('labels both chronological gallery orders', () => {
     expect(copy.gallery.order).toEqual({
-      newest: 'Orden: más recientes primero',
-      oldest: 'Orden: más antiguas primero'
+      newest: 'Más recientes primero',
+      oldest: 'Más antiguas primero'
     })
   })
 

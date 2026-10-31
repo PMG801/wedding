@@ -24,7 +24,6 @@ export const copy = {
     noPreview: 'Vista previa no disponible',
     photoAlt: 'Foto de la boda',
     videoLabel: 'Vídeo',
-    order: { newest: 'Orden: más recientes primero', oldest: 'Orden: más antiguas primero' },
     viewsLabel: 'Orden de la galería',
     backToTop: 'Volver arriba',
     views: { recent: 'Recientes', top: 'Más gustadas' },

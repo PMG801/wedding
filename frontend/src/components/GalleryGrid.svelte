@@ -214,14 +214,6 @@
 </section>
 
 <style>
-  .gallery-heading {
-    position: relative;
-  }
-
-  .gallery-heading h2 {
-    text-align: center;
-  }
-
   .kinds {
     display: flex;
     justify-content: center;
