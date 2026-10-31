@@ -16,10 +16,14 @@ func validEnvironment() map[string]string {
 }
 
 func loadFrom(values map[string]string) (Config, error) {
+	names := make([]string, 0, len(values))
+	for key := range values {
+		names = append(names, key)
+	}
 	return LoadFrom(func(key string) (string, bool) {
 		value, ok := values[key]
 		return value, ok
-	})
+	}, names)
 }
 
 func TestLoadFromRequiresConfigurationWithoutLeakingSecrets(t *testing.T) {

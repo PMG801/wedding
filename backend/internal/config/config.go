@@ -29,16 +29,27 @@ type Config struct {
 	BackupKeep           int
 	ThumbFallback        bool
 	LogLevel             string
+	// Periods are the carousel time windows; none means the carousel is off.
+	Periods          []Period
+	CarouselSize     int
+	CarouselRotation time.Duration
 }
 
 // Load reads configuration from the process environment.
 func Load() (Config, error) {
-	return LoadFrom(os.LookupEnv)
+	names := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		names = append(names, name)
+	}
+	return LoadFrom(os.LookupEnv, names)
 }
 
-// LoadFrom reads and validates configuration using lookup. Errors identify the
-// setting to fix but never include configured values, which may be secret.
-func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
+// LoadFrom reads and validates configuration using lookup. names lists every
+// variable name in the environment; it is how BODA_PERIOD_<n> variables are
+// discovered, so gaps in the numbering are found at any index. Errors identify
+// the setting to fix but never include configured values, which may be secret.
+func LoadFrom(lookup func(string) (string, bool), names []string) (Config, error) {
 	if lookup == nil {
 		return Config{}, fmt.Errorf("configuration lookup is required")
 	}
@@ -119,6 +130,15 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	case "debug", "info", "warn", "error":
 	default:
 		return Config{}, fmt.Errorf("BODA_LOG_LEVEL must be debug, info, warn, or error")
+	}
+	if cfg.Periods, err = loadPeriods(lookup, names); err != nil {
+		return Config{}, err
+	}
+	if cfg.CarouselSize, err = carouselSize(lookup); err != nil {
+		return Config{}, err
+	}
+	if cfg.CarouselRotation, err = carouselRotation(lookup); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
