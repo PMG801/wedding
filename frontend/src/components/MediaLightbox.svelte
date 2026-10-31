@@ -14,6 +14,7 @@
     onClose,
     onSwipe,
     onKeydown,
+    onFramePointerDown,
     onFramePointerUp,
     notice = '',
     topStart,
@@ -24,6 +25,7 @@
     onClose: () => void
     onSwipe?: (direction: 'previous' | 'next') => void
     onKeydown?: (event: KeyboardEvent) => void
+    onFramePointerDown?: (event: PointerEvent) => void
     onFramePointerUp?: (event: PointerEvent) => void
     /** Error or status text shown over the media; empty for none. */
     notice?: string
@@ -103,7 +105,7 @@
   </div>
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="frame" onpointerup={onFramePointerUp}>
+  <div class="frame" onpointerdown={onFramePointerDown} onpointerup={onFramePointerUp}>
     {@render children()}
     {#if notice !== ''}
       <p class="notice-toast" role="alert">{notice}</p>

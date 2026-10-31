@@ -2,18 +2,22 @@
   import { onMount } from 'svelte'
   import BackToTop from '../components/BackToTop.svelte'
   import BottomNav from '../components/BottomNav.svelte'
+  import CarouselStrip from '../components/CarouselStrip.svelte'
   import GalleryGrid from '../components/GalleryGrid.svelte'
   import PhotoDialog from '../components/PhotoDialog.svelte'
   import PinnedSection from '../components/PinnedSection.svelte'
   import UploadPanel from '../components/UploadPanel.svelte'
   import { copy } from '../lib/i18n/es'
-  import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
+  import { fetchCarousels, type CarouselPeriod } from '../lib/api/carousels'
+  import { fetchGalleryPage, fetchTopMedia, GuestSessionRequiredError, setLike, xhrTransport } from '../lib/api/media'
   import { tusTransport } from '../lib/api/uploads'
   import { hasAdminSession } from '../lib/api/moderation'
+  import { periodLabel } from '../lib/carousel/label'
+  import { RETRY_DELAY_MS, refreshDelayMs } from '../lib/carousel/rotation'
   import { GalleryFeed, type GalleryFeedState, type GalleryView } from '../lib/gallery/feed'
   import { swipeDirection, viewAfterSwipe } from '../lib/gallery/swipe'
   import { adoptDeepLink, closeViewer, moveViewer, openViewer } from '../lib/gallery/history'
-  import { parseRoute, photoHash, type Route } from '../lib/gallery/view'
+  import { albumHash, parseRoute, photoHash, storyHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
   import { UploadQueue, type UploadItem } from '../lib/upload/queue'
 
@@ -26,6 +30,10 @@
   let canHide = $state(false)
   // Height of the fixed bottom dock (strip + nav); the page keeps that much room at its end (S8).
   let dockHeight = $state(0)
+
+  // Story strip (S8): periods with media, refetched at each rotation slot. Empty hides it.
+  let carousel = $state<CarouselPeriod[]>([])
+  let carouselTimer: ReturnType<typeof setTimeout> | undefined
 
   let finishedUploads = 0
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -44,6 +52,8 @@
     transport: xhrTransport,
     originalTransport: tusTransport,
     makeDerivatives: (file) => createMediaDerivatives(file),
+    // Loaded on the first upload only: the EXIF/ISO-BMFF reader stays out of the entry chunk.
+    captureTime: (file) => import('../lib/media/captureTime').then(({ readCaptureTime }) => readCaptureTime(file)),
     onChange: (items) => {
       uploads = items
       const finished = items.filter((item) => item.status === 'done').length
@@ -63,12 +73,41 @@
     return current.name === 'photo' ? gallery.items.findIndex((item) => item.id === current.id) : -1
   })
 
+  const storyPeriod = $derived.by(() => {
+    const current = route
+    return current.name === 'story' ? (carousel.find((period) => period.id === current.id) ?? null) : null
+  })
+  const albumLabel = $derived.by(() => {
+    const current = route
+    return current.name === 'album' ? carouselLabel(current.id) : null
+  })
+
   const homeUrl = () => `${location.pathname}${location.search}`
+
+  function carouselLabel(id: number): string | null {
+    const period = carousel.find((candidate) => candidate.id === id)
+    return period === undefined ? null : periodLabel(period.start, period.end)
+  }
+
+  /** Loads the strip and schedules the next refetch at the rotation slot (S8). */
+  async function loadCarousel() {
+    clearTimeout(carouselTimer)
+    try {
+      const data = await fetchCarousels()
+      carousel = data.periods
+      carouselTimer = setTimeout(() => void loadCarousel(), refreshDelayMs(data.rotatesAt, Date.now()))
+    } catch (error) {
+      // The strip stays hidden; a lost session is reported by the gallery itself.
+      carousel = []
+      if (!(error instanceof GuestSessionRequiredError)) carouselTimer = setTimeout(() => void loadCarousel(), RETRY_DELAY_MS)
+    }
+  }
 
   onMount(() => {
     void feed.loadMore()
-    // A shared photo link still lets the back button return to the gallery (S4).
-    if (route.name === 'photo') adoptDeepLink(history, homeUrl(), location.hash)
+    void loadCarousel()
+    // A shared photo, story or album link still lets the back button return home (S4).
+    if (route.name !== 'home') adoptDeepLink(history, homeUrl(), location.hash)
     const onHashChange = () => (route = parseRoute(location.hash))
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (busy) event.preventDefault()
@@ -79,6 +118,7 @@
     addEventListener('beforeunload', onBeforeUnload)
     return () => {
       clearTimeout(refreshTimer)
+      clearTimeout(carouselTimer)
       removeEventListener('hashchange', onHashChange)
       removeEventListener('popstate', onHashChange)
       removeEventListener('beforeunload', onBeforeUnload)
@@ -104,6 +144,29 @@
     if (route.name !== 'photo') return
     // Going back fires popstate, which brings the route home.
     if (closeViewer(history, homeUrl()) === 'replaced') route = { name: 'home' }
+  }
+
+  /** Opens a period's story on its own history entry, so back closes it. */
+  function openStory(id: number) {
+    openViewer(history, storyHash(id))
+    route = parseRoute(location.hash)
+  }
+
+  /** From a story, the album replaces the story entry: back from the album returns home. */
+  function openAlbum(id: number) {
+    moveViewer(history, albumHash(id))
+    route = parseRoute(location.hash)
+  }
+
+  /** Closes a story or the album: back when the app pushed the entry, otherwise home in place. */
+  function closeOverlay() {
+    if (route.name !== 'story' && route.name !== 'album') return
+    if (closeViewer(history, homeUrl()) === 'replaced') route = { name: 'home' }
+  }
+
+  /** The story's dialog close event must only close a story, never an album that replaced it. */
+  function closeStory() {
+    if (route.name === 'story') closeOverlay()
   }
 
   let swipeStart: { x: number; y: number } | null = null
@@ -160,6 +223,8 @@
   }
 </script>
 
+<CarouselStrip periods={carousel} onOpen={openStory} />
+
 <PinnedSection onSessionLost={onSessionLost} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -188,6 +253,30 @@
   />
 {/if}
 
+{#if storyPeriod !== null}
+  {#await import('../components/StoryViewer.svelte') then { default: StoryViewer }}
+    <StoryViewer
+      items={storyPeriod.items}
+      label={periodLabel(storyPeriod.start, storyPeriod.end) ?? copy.carousel.heading}
+      onClose={closeStory}
+      onAlbum={() => openAlbum(storyPeriod.id)}
+    />
+  {/await}
+{/if}
+
+{#if route.name === 'album'}
+  <!-- The album covers the home page and stays above it; the dock keeps showing upload progress. -->
+  <div class="album-layer" style:bottom="{dockHeight}px">
+    {#await import('../components/AlbumSection.svelte')}
+      <p class="notice" role="status">{copy.gallery.loading}</p>
+    {:then { default: AlbumSection }}
+      <AlbumSection periodId={route.id} label={albumLabel} onBack={closeOverlay} onSessionLost={onSessionLost} />
+    {:catch}
+      <p class="notice" role="alert">{copy.carousel.albumError}</p>
+    {/await}
+  </div>
+{/if}
+
 <div class="dock" bind:clientHeight={dockHeight}>
   <UploadPanel
     items={visibleUploads}
@@ -202,6 +291,15 @@
 <style>
   .swipe-area {
     touch-action: pan-y pinch-zoom;
+  }
+
+  /* The album layer sits between the home page and the dock; its bottom offset is the dock height. */
+  .album-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 15;
   }
 
   /* Fixed under the page: the strip above the nav, both in the same 960px column. */
