@@ -54,6 +54,10 @@ func TestResumableStoresCapturedAtOfVideo(t *testing.T) {
 	f := newResumableFixture(t, upload.Options{MaxBytes: 1024, MaxVideoBytes: 4096, MaxConcurrent: 2}, 2)
 	mp4 := append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}, make([]byte, 52)...)
 	f.uploadCaptured(tusIDOne, capturedMetadata(tusIDOne, "2026-10-18T21:30:00", true), mp4)
+	var mime string
+	if err := f.database.QueryRow("SELECT media_type FROM media WHERE id = ?", tusIDOne).Scan(&mime); err != nil || mime != "video/mp4" {
+		t.Fatalf("stored media_type = %q (%v); want video/mp4", mime, err)
+	}
 	if got, ok := f.storedCaptured(tusIDOne); !ok || got != "2026-10-18T21:30:00" {
 		t.Fatalf("stored captured_at = %q, %v; want 2026-10-18T21:30:00", got, ok)
 	}
