@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GalleryItem } from '../api/media'
-import { detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, videoPoster, startPlayback, nextPreload } from './view'
+import { albumHash, detailImage, isDoubleTap, shouldShowLikeBadge, downloadFileName, downloadUrl, gridImage, hasGuestSession, isVideoItem, parseRoute, photoHash, storyHash, videoPoster, startPlayback, nextPreload } from './view'
 
 const base: GalleryItem = {
   id: '123e4567-e89b-42d3-a456-426614174000',
@@ -133,5 +133,20 @@ describe('nextPreload (S11)', () => {
   it('never preloads an original the browser cannot paint', () => {
     const heic = photo('h', { mime: 'image/heic', detailUrl: null, thumbUrl: null, originalUrl: '/m/o/h.heic' })
     expect(nextPreload([photo('a'), heic], 0)).toBeNull()
+  })
+})
+
+describe('story and album routes', () => {
+  it('parses the story and album hashes of a period', () => {
+    expect(parseRoute('#/historia/3')).toEqual({ name: 'story', id: 3 })
+    expect(parseRoute('#/album/3')).toEqual({ name: 'album', id: 3 })
+    expect(storyHash(3)).toBe('#/historia/3')
+    expect(albumHash(3)).toBe('#/album/3')
+  })
+
+  it('treats malformed period ids as the home page', () => {
+    for (const hash of ['#/album/0', '#/album/abc', '#/album/3/x', '#/album/1000000000', '#/historia/', '#/historia/-1']) {
+      expect(parseRoute(hash)).toEqual({ name: 'home' })
+    }
   })
 })

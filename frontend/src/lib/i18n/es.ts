@@ -34,6 +34,16 @@ export const copy = {
   ranking: {
     empty: 'Todavía no hay fotos con me gusta'
   },
+  carousel: {
+    heading: 'Momentos del día',
+    bubble: (label: string): string => `Fotos de ${label}`,
+    viewAlbum: 'Ver álbum completo',
+    counter: (position: number, total: number): string => `${position} de ${total}`,
+    back: 'Volver',
+    albumError: 'No se ha podido cargar el álbum. Inténtalo de nuevo.',
+    albumEmpty: 'Todavía no hay fotos en esta franja.',
+    albumNotFound: 'Esta franja horaria ya no está disponible.'
+  },
   pinned: {
     heading: 'Fijados',
     show: 'Mostrar fijados',

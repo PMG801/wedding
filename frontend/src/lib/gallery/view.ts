@@ -33,16 +33,37 @@ export function downloadFileName(item: GalleryItem): string {
   return `boda-${stamp}${extension}`
 }
 
-export type Route = { name: 'home' } | { name: 'photo'; id: string }
+export type Route =
+  | { name: 'home' }
+  | { name: 'photo'; id: string }
+  /** The story viewer over one time period of the strip. */
+  | { name: 'story'; id: number }
+  /** The full album of one period (lazy section). */
+  | { name: 'album'; id: number }
+
+const PERIOD_ID = /^[1-9]\d{0,8}$/
 
 export function parseRoute(hash: string): Route {
   const match = /^#\/foto\/([^/]+)$/.exec(hash)
   if (match !== null && MEDIA_ID.test(match[1])) return { name: 'photo', id: match[1] }
+  const period = /^#\/(historia|album)\/([^/]+)$/.exec(hash)
+  if (period !== null && PERIOD_ID.test(period[2])) {
+    const id = Number(period[2])
+    return period[1] === 'album' ? { name: 'album', id } : { name: 'story', id }
+  }
   return { name: 'home' }
 }
 
 export function photoHash(id: string): string {
   return `#/foto/${id}`
+}
+
+export function storyHash(id: number): string {
+  return `#/historia/${id}`
+}
+
+export function albumHash(id: number): string {
+  return `#/album/${id}`
 }
 
 /** True when the browser holds the guest cookie from the wedding QR code. */
