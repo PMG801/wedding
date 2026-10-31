@@ -25,8 +25,8 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("user_version = %d; want 3", version)
+	if version != 4 {
+		t.Fatalf("user_version = %d; want 4", version)
 	}
 
 	var journalMode string
@@ -60,7 +60,7 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		t.Fatalf("tables = %v; want exactly %v", tables, wantTables)
 	}
 
-	wantIndexes := []string{"media_hidden_cursor", "media_visible_cursor", "media_visible_popularity"}
+	wantIndexes := []string{"media_hidden_cursor", "media_visible_captured", "media_visible_cursor", "media_visible_popularity"}
 	indexRows, err := database.QueryContext(ctx, "SELECT name, sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'media' AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +73,12 @@ func TestOpenConfiguresPoolAndAppliesSchemaOnce(t *testing.T) {
 		}
 		indexes = append(indexes, name)
 		definition = strings.ToLower(definition)
+		if name == "media_visible_captured" {
+			if !strings.Contains(definition, "on media (captured_at, id)") || !strings.Contains(definition, "where visibility = 'visible' and captured_at is not null") {
+				t.Errorf("index %s has unexpected capture definition: %s", name, definition)
+			}
+			continue
+		}
 		if name == "media_visible_popularity" {
 			if !strings.Contains(definition, "on media (like_count desc, confirmed_at desc, id desc)") || !strings.Contains(definition, "where visibility = 'visible' and like_count > 0") {
 				t.Errorf("index %s has unexpected ranking definition: %s", name, definition)
@@ -249,7 +255,7 @@ func TestMigration0002AddsLikesToExistingVersionOneDatabase(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
+	if version != 4 {
 		t.Fatalf("user_version after upgrade = %d; want 3", version)
 	}
 	var likeCount int
@@ -327,7 +333,7 @@ func TestMigration0003AddsPinnedItemsToVersionTwoDatabase(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
+	if version != 4 {
 		t.Fatalf("user_version after upgrade = %d; want 3", version)
 	}
 	var likeCount, likeRows, mediaRows int
