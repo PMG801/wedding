@@ -120,21 +120,23 @@
 </script>
 
 <section id="gallery" class="gallery" aria-labelledby="gallery-heading">
-  <h2 id="gallery-heading">{copy.gallery.heading}</h2>
+  <div class="gallery-heading">
+    <h2 id="gallery-heading">{copy.gallery.heading}</h2>
 
-  {#if feed.view === 'recent'}
-    <!-- Order is separate from "Más gustadas" (S6): it only exists in the chronological view. -->
-    <button
-      class="order"
-      type="button"
-      onclick={() => onOrderChange(feed.order === 'newest' ? 'oldest' : 'newest')}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d={feed.order === 'newest' ? 'M12 4v16M6 14l6 6 6-6' : 'M12 20V4M6 10l6-6 6 6'} />
-      </svg>
-      <span>{copy.gallery.order[feed.order]}</span>
-    </button>
-  {/if}
+    {#if feed.view === 'recent'}
+      <button
+        class="order"
+        type="button"
+        aria-label={copy.gallery.order[feed.order]}
+        aria-pressed={feed.order === 'oldest'}
+        onclick={() => onOrderChange(feed.order === 'newest' ? 'oldest' : 'newest')}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d={feed.order === 'newest' ? 'M12 4v16M6 14l6 6 6-6' : 'M12 20V4M6 10l6-6 6 6'} />
+        </svg>
+      </button>
+    {/if}
+  </div>
 
   {#if feed.likeFailedId !== null}
     <p class="notice" role="alert">{copy.likes.failed}</p>
@@ -201,31 +203,45 @@
 </section>
 
 <style>
-  .gallery h2 {
+  .gallery-heading {
+    position: relative;
+  }
+
+  .gallery-heading h2 {
     text-align: center;
   }
 
   .order {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-height: 44px;
-    margin: 0 auto 0.5rem;
-    padding: 0 0.9rem;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--paper);
-    color: var(--ink);
-    font: inherit;
-    font-size: 0.9rem;
+    position: absolute;
+    top: 50%;
+    right: 0;
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    padding: 0;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
     cursor: pointer;
   }
 
+  .order:hover {
+    color: var(--sage-dark);
+  }
+
+  .order:focus-visible {
+    outline: 2px solid var(--sage-dark);
+    outline-offset: 2px;
+  }
+
   .order svg {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     fill: none;
-    stroke: var(--sage-dark);
+    stroke: currentColor;
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
