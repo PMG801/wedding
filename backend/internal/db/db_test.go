@@ -256,7 +256,7 @@ func TestMigration0002AddsLikesToExistingVersionOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	if version != 4 {
-		t.Fatalf("user_version after upgrade = %d; want 3", version)
+		t.Fatalf("user_version after upgrade = %d; want 4", version)
 	}
 	var likeCount int
 	if err := database.QueryRowContext(ctx, "SELECT like_count FROM media WHERE id = ?", mediaID).Scan(&likeCount); err != nil {
@@ -334,7 +334,7 @@ func TestMigration0003AddsPinnedItemsToVersionTwoDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	if version != 4 {
-		t.Fatalf("user_version after upgrade = %d; want 3", version)
+		t.Fatalf("user_version after upgrade = %d; want 4", version)
 	}
 	var likeCount, likeRows, mediaRows int
 	if err := database.QueryRowContext(ctx, "SELECT like_count FROM media WHERE id = ?", mediaID).Scan(&likeCount); err != nil {
