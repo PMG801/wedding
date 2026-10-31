@@ -72,26 +72,6 @@ describe('hasGuestSession', () => {
     await expect(hasGuestSession(vi.fn().mockResolvedValue({ status: 401 }))).resolves.toBe(false)
     await expect(hasGuestSession(vi.fn().mockResolvedValue({ status: 502 }))).rejects.toThrow('HTTP 502')
   })
-
-  it('aborts the session check when the request times out', async () => {
-    vi.useFakeTimers()
-    try {
-      const fetchFn = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(new Error('request aborted')))
-        })
-      })
-
-      const request = hasGuestSession(fetchFn)
-      const rejection = expect(request).rejects.toThrow('request aborted')
-      await vi.advanceTimersByTimeAsync(10_000)
-
-      await rejection
-      expect(fetchFn.mock.calls[0][1]?.signal?.aborted).toBe(true)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
 })
 
 describe('like affordances', () => {

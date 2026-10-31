@@ -4,7 +4,6 @@ import { isVideoMime } from '../media/kind'
 /** MIME types every browser can paint in an <img>; HEIC/HEIF are not among them. */
 const BROWSER_DISPLAYABLE = new Set(['image/jpeg', 'image/png'])
 const MEDIA_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const GUEST_SESSION_TIMEOUT_MS = 10_000
 
 /** Grid tiles only ever show thumbnails; a missing one is a placeholder, never the original. */
 export function gridImage(item: GalleryItem): string | null {
@@ -48,20 +47,10 @@ export function photoHash(id: string): string {
 
 /** True when the browser holds the guest cookie from the wedding QR code. */
 export async function hasGuestSession(fetchFn: typeof fetch = fetch): Promise<boolean> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), GUEST_SESSION_TIMEOUT_MS)
-
-  try {
-    const response = await fetchFn('/api/session', {
-      credentials: 'same-origin',
-      signal: controller.signal
-    })
-    if (response.status === 204) return true
-    if (response.status === 401) return false
-    throw new Error(`Session check failed with HTTP ${response.status}`)
-  } finally {
-    clearTimeout(timeoutId)
-  }
+  const response = await fetchFn('/api/session', { credentials: 'same-origin' })
+  if (response.status === 204) return true
+  if (response.status === 401) return false
+  throw new Error(`Session check failed with HTTP ${response.status}`)
 }
 
 /** The grid shows the like badge only for items that already have at least one like. */
