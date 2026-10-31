@@ -128,10 +128,18 @@
 </script>
 
 <section id="gallery" class="gallery" aria-labelledby="gallery-heading">
-  <div class="gallery-heading">
-    <h2 id="gallery-heading">{copy.gallery.heading}</h2>
+  <h2 id="gallery-heading">{copy.gallery.heading}</h2>
 
-    {#if feed.view === 'recent'}
+  {#if feed.view === 'recent'}
+    <div class="toolbar">
+      <div class="kinds" role="group" aria-label={copy.gallery.kinds.label}>
+        {#each kinds as kind (kind)}
+          <button class="chip" type="button" aria-pressed={feed.kind === kind} onclick={() => onKindChange(kind)}>
+            {copy.gallery.kinds[kind]}
+          </button>
+        {/each}
+      </div>
+
       <button
         class="order"
         type="button"
@@ -139,20 +147,11 @@
         aria-pressed={feed.order === 'oldest'}
         onclick={() => onOrderChange(feed.order === 'newest' ? 'oldest' : 'newest')}
       >
+        <span aria-hidden="true">{copy.gallery.orderShort[feed.order]}</span>
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d={feed.order === 'newest' ? 'M12 4v16M6 14l6 6 6-6' : 'M12 20V4M6 10l6-6 6 6'} />
         </svg>
       </button>
-    {/if}
-  </div>
-
-  {#if feed.view === 'recent'}
-    <div class="kinds" role="group" aria-label={copy.gallery.kinds.label}>
-      {#each kinds as kind (kind)}
-        <button class="chip" type="button" aria-pressed={feed.kind === kind} onclick={() => onKindChange(kind)}>
-          {copy.gallery.kinds[kind]}
-        </button>
-      {/each}
     </div>
   {/if}
 
@@ -221,53 +220,57 @@
 </section>
 
 <style>
-  .gallery-heading {
-    position: relative;
+  .gallery h2 {
+    margin-bottom: 0.5rem;
+    text-align: center;
   }
 
-  .gallery-heading h2 {
-    text-align: center;
+  /* One quiet line: type filter on the left, order on the right, a hairline underneath. */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line);
   }
 
   .kinds {
     display: flex;
-    justify-content: center;
-    gap: 0.4rem;
-    margin-bottom: 0.5rem;
+    gap: 1.25rem;
   }
 
   .chip {
     min-height: 44px;
-    padding: 0 1rem;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--paper);
-    color: var(--ink);
+    padding: 0;
+    /* The active underline sits on the toolbar hairline. */
+    margin-bottom: -1px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--muted);
     font: inherit;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     cursor: pointer;
   }
 
   .chip[aria-pressed='true'] {
-    border-color: var(--sage-dark);
-    background: var(--sage-dark);
-    color: var(--paper);
+    border-bottom-color: var(--sage-dark);
+    color: var(--ink);
+    font-weight: 600;
   }
 
   .order {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    display: grid;
-    width: 44px;
-    height: 44px;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 44px;
     padding: 0;
-    transform: translateY(-50%);
     border: 0;
-    border-radius: 50%;
-    background: transparent;
+    background: none;
     color: var(--muted);
+    font: inherit;
+    font-size: 0.85rem;
     cursor: pointer;
   }
 
@@ -275,14 +278,15 @@
     color: var(--sage-dark);
   }
 
+  .chip:focus-visible,
   .order:focus-visible {
     outline: 2px solid var(--sage-dark);
     outline-offset: 2px;
   }
 
   .order svg {
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     fill: none;
     stroke: currentColor;
     stroke-width: 2;

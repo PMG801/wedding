@@ -28,7 +28,8 @@ export const copy = {
     backToTop: 'Volver arriba',
     views: { recent: 'Recientes', top: 'Más gustadas' },
     kinds: { label: 'Tipo de contenido', all: 'Todo', photo: 'Fotos', video: 'Vídeos' },
-    order: { newest: 'Más recientes primero', oldest: 'Más antiguas primero' }
+    order: { newest: 'Más recientes primero', oldest: 'Más antiguas primero' },
+    orderShort: { newest: 'Recientes', oldest: 'Antiguas' }
   },
   ranking: {
     empty: 'Todavía no hay fotos con me gusta'
