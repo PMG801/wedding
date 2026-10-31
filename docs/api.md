@@ -108,6 +108,8 @@ Protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) con las extensi
 
 **`POST /api/uploads/` — crear la subida.** Exige `Upload-Length` positivo y el metadato `id` en `Upload-Metadata` (UUIDv4 canónico en minúsculas, en base64 como manda tus); `filetype` es opcional e informativo. El identificador de la subida es el del medio.
 
+La cabecera opcional `X-Captured-At` lleva la hora local de captura de la foto o el vídeo en el formato `YYYY-MM-DDTHH:MM:SS`, sin zona horaria, tal como la extrae el cliente de los metadatos (ADR-0014). Solo se guarda si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Si falta, está mal formada o es imposible, la subida no cambia: responde el mismo código que sin la cabecera y la hora queda sin guardar (`NULL`), de modo que ese medio no entra en el carrusel. Un reintento de un identificador ya confirmado nunca cambia la hora guardada.
+
 | Estado | Significado y respuesta |
 | --- | --- |
 | `201 Created` | Subida creada; `Location: /api/uploads/{id}`. |
@@ -178,6 +180,56 @@ La ruta exige una cookie de sesión de invitado válida. Devuelve, en una sola r
 | `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
 | `500 Internal Server Error` | Error interno al leer el ranking (`{"error":"gallery_failed"}`). |
 | `503 Service Unavailable` | El servicio de galería no está disponible (`{"error":"gallery_unavailable"}`). |
+
+### `GET /api/carousels` — carrusel de periodos
+
+La ruta exige una cookie de sesión de invitado válida (`guest_session`). Devuelve una burbuja por cada periodo configurado (`BODA_PERIOD_<n>_START` y `BODA_PERIOD_<n>_END`, ver `docs/runbook.md`) que tenga al menos un medio visible con hora de captura. Cada burbuja trae como máximo `BODA_CAROUSEL_SIZE` medios (1 a 50, 10 por defecto), elegidos con una selección determinista por periodo y por ranura de rotación (`BODA_CAROUSEL_ROTATION`, 30 minutos por defecto). Todos los invitados ven la misma selección dentro de una ranura, y los medios se devuelven en orden de hora de captura. `total` es el número de medios visibles del periodo. `rotates_at` es el instante en que empieza la siguiente ranura, en milisegundos Unix UTC; el cliente vuelve a pedir la lista en ese momento. Sin periodos configurados, `periods` es una lista vacía. Los medios ocultos y los que no tienen hora de captura no aparecen nunca. Cada elemento de `items` tiene la misma forma que en `GET /api/media`.
+
+```json
+{
+  "rotates_at": 1790000000000,
+  "periods": [
+    {
+      "id": 1,
+      "start": "2026-10-18T18:00",
+      "end": "2026-10-18T20:00",
+      "total": 37,
+      "items": [
+        {
+          "id": "123e4567-e89b-42d3-a456-426614174000",
+          "mime": "image/jpeg",
+          "confirmed_at": 1790000000000,
+          "original_url": "/m/o/20260926T183012.000000000Z_123e4567-e89b-42d3-a456-426614174000.jpg",
+          "thumb_url": "/m/d/123e4567-e89b-42d3-a456-426614174000_t.jpg",
+          "detail_url": null,
+          "like_count": 3,
+          "liked_by_me": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Lista de burbujas con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`. |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `500 Internal Server Error` | Error interno al leer los medios (`{"error":"carousel_failed"}`). |
+| `503 Service Unavailable` | El servicio de carrusel no está disponible (`{"error":"carousels_unavailable"}`). |
+
+### `GET /api/carousels/{id}?cursor=<opaco>&limit=50` — álbum de un periodo
+
+La ruta exige una cookie de sesión de invitado válida. Devuelve el álbum completo de un periodo: todos sus medios visibles con hora de captura, ordenados de forma ascendente por `(captured_at, id)`. `{id}` es el número `n` del periodo. La paginación es por clave: el cursor es opaco, solo vale para el mismo periodo, y el cliente debe reenviar el `next_cursor` de la página anterior sin modificarlo. `limit` va de 1 a 100 (50 por defecto). La página tiene la misma forma que `GET /api/media` (`items` y `next_cursor`), y sus elementos tienen la forma de `GET /api/media`.
+
+| Estado | Significado y respuesta |
+| --- | --- |
+| `200 OK` | Página JSON con `Content-Type: application/json; charset=utf-8` y `Cache-Control: no-store`. Un periodo sin medios devuelve `{"items":[],"next_cursor":null}`. |
+| `400 Bad Request` | `limit` fuera de rango o no numérico (`{"error":"invalid_limit"}`), o cursor no emitido por el servidor (`{"error":"invalid_cursor"}`). |
+| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
+| `404 Not Found` | No hay ningún periodo configurado con ese `n` (`{"error":"period_not_found"}`). |
+| `500 Internal Server Error` | Error interno al leer el álbum (`{"error":"carousel_failed"}`). |
+| `503 Service Unavailable` | El servicio de carrusel no está disponible (`{"error":"carousels_unavailable"}`). |
 
 ### `PUT /api/media/{id}/like` y `DELETE /api/media/{id}/like` — «me gusta»
 

@@ -133,6 +133,10 @@ Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `
 | `BODA_BACKUP_INTERVAL` | No | `24h` | Intervalo de la copia de SQLite en `backup/` (ver «Copias de seguridad de SQLite»). |
 | `BODA_BACKUP_KEEP` | No | `7` | Número de copias de SQLite que se conservan; se borran las más antiguas. |
 | `BODA_THUMB_FALLBACK` | No | `off` | Pasa a `on` en la fase 2. |
+| `BODA_PERIOD_<n>_START` | No | `2026-10-18T18:00` | Inicio del periodo *n* del carrusel, en hora local del evento. Formato `YYYY-MM-DDTHH:MM`. Los periodos se numeran 1, 2, 3… sin huecos. |
+| `BODA_PERIOD_<n>_END` | No | `2026-10-18T20:00` | Fin del periodo *n* (excluido). Debe ser posterior a `START`. `START` y `END` van siempre juntos. Si una variable de un periodo es incorrecta o falta, la aplicación no arranca y el error nombra la variable, nunca su valor. Sin periodos, el carrusel está apagado. |
+| `BODA_CAROUSEL_SIZE` | No | `10` | Número máximo de medios que muestra cada burbuja del carrusel, de 1 a 50. |
+| `BODA_CAROUSEL_ROTATION` | No | `30m` | Cada cuánto cambia la selección de cada burbuja. Duración de Go, de al menos `1m`. |
 | `BODA_LOG_LEVEL` | No | `info` | Valores válidos: `debug`, `info`, `warn` o `error`. |
 
 `GOMEMLIMIT=512MiB` no es una variable `BODA_*`: Compose la fija en el contenedor `app` como límite blando del recolector de Go, por debajo de su límite de memoria de 1 GiB.

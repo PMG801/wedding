@@ -100,6 +100,14 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	if err != nil {
 		return nil, fmt.Errorf("initialize resumable uploads: %w", err)
 	}
+	carousel, err := media.NewCarousel(gallery, media.CarouselConfig{
+		Periods:  carouselPeriods(cfg.Periods),
+		Size:     cfg.CarouselSize,
+		Rotation: cfg.CarouselRotation,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize carousel: %w", err)
+	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
@@ -107,7 +115,17 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 		httpapi.WithHiddenMedia(gallery),
 		httpapi.WithLikes(likes),
 		httpapi.WithPinned(pinnedItems),
-		httpapi.WithResumable(resumable)), nil
+		httpapi.WithResumable(resumable),
+		httpapi.WithCarousel(carousel)), nil
+}
+
+// carouselPeriods converts the validated configuration into carousel windows.
+func carouselPeriods(periods []config.Period) []media.Period {
+	result := make([]media.Period, 0, len(periods))
+	for _, period := range periods {
+		result = append(result, media.Period{ID: period.ID, Start: period.Start, End: period.End})
+	}
+	return result
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk
