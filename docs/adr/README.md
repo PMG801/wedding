@@ -22,3 +22,4 @@ Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido*
 - [ADR-0012 · «Me gusta» con identidad anónima de invitado y ranking de 50](0012-me-gusta-invitado-anonimo.md)
 - [ADR-0013 · Publicaciones fijadas: texto del administrador, hasta cinco, con imagen opcional de la galería](0013-publicaciones-fijadas.md)
 - [ADR-0014 · Subidas reanudables de originales con tus (librería tusd)](0014-subidas-reanudables-tus.md)
+- [ADR-0014 · Carrusel por hora de captura: periodos desde variables de entorno y selección por ranura](0014-carrusel-por-hora-de-captura.md)

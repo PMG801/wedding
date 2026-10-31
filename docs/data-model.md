@@ -57,6 +57,18 @@ La longitud se cuenta en caracteres (puntos de código Unicode), como en ADR-001
 
 El límite de cinco entradas y la reescritura del orden (`position`) no se pueden expresar solo con restricciones: el almacén los aplica dentro de una transacción. Al crear, la nueva fila ocupa la posición siguiente; al borrar, las posiciones restantes se compactan; al reordenar, se reasignan de 0 a 4 en la misma transacción, pasando primero por posiciones temporales altas para no chocar con `UNIQUE`. La restricción `UNIQUE` sobre `position` impide dos entradas en la misma posición.
 
+## Migración `0004_media_captured_at.sql`
+
+Añade la hora de captura de cada medio (ADR-0014). No crea tablas ni cambia `media_likes`, `pinned_items` ni `settings`.
+
+| Tabla y columna | Tipo / restricción | Significado |
+|---|---|---|
+| `media.captured_at` | `TEXT NULL`, `CHECK`: `NULL` o la forma `YYYY-MM-DDTHH:MM:SS` | Hora local de captura de la foto o el vídeo, sin zona horaria, tal como la envía el cliente en `X-Captured-At`. `NULL` si el cliente no la obtuvo o la cabecera no era válida. |
+
+El `CHECK` valida solo la forma (19 caracteres y el patrón de dígitos). La fecha real y el rango de años (2000 a 2100) los comprueba la aplicación antes de escribir; un valor no válido se guarda como `NULL` y nunca falla la subida. Las filas existentes quedan en `NULL` y no entran en el carrusel. La migración no rellena la hora desde la fecha de modificación del archivo.
+
+El índice parcial `media_visible_captured` ordena por `(captured_at, id)` solo las filas `visible` con hora de captura. Lo usan la tira del carrusel y el álbum de cada periodo, y su condición coincide con la de la consulta para que SQLite lo use.
+
 ## Claves de `settings`
 
 La tabla `settings` guarda solo ajustes operativos, nunca secretos. La capa de aplicación acepta únicamente las claves de una lista permitida; cualquier otra clave se rechaza sin escribir nada.

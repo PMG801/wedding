@@ -1,0 +1,33 @@
+# ADR-0014 · Carrusel por hora de captura: periodos desde variables de entorno y selección por ranura
+
+- **Estado:** Aceptado
+- **Contexto:**
+  - Con cientos de fotos, la galería cronológica sola no permite ver los momentos de cada franja de la boda sin saturar el álbum.
+  - Los novios quieren un carrusel de tipo historia, arriba de la pantalla principal, con unas diez fotos por franja que roten cada media hora, y una sección aparte con el álbum completo de cada franja.
+  - La franja depende de cuándo se hizo la foto, no de cuándo se subió. Subir todo al final de la boda desde un móvil no debe desplazar una foto a otra franja.
+  - Solo la metadata de captura es válida. El instante de modificación del archivo no sirve: el móvil lo cambia al copiar o editar, y una fecha falsa colocaría la foto en una franja equivocada.
+  - Una foto sin metadata no debe rechazarse: se pierde un recuerdo por un dato accesorio.
+- **Decisión:**
+  - **D1 · Hora de captura en el cliente.** El navegador extrae la hora local de captura antes de subir: `DateTimeOriginal` de EXIF (o `DateTimeDigitized` si falta) en JPEG y HEIC, y la fecha de creación de `mvhd` en MP4 y MOV, convertida con la zona horaria del dispositivo (una época 0 o 1904 cuenta como ausente). Nunca se usa `File.lastModified`.
+  - **D2 · Formato y cabecera.** La hora es una cadena `YYYY-MM-DDTHH:MM:SS` sin zona. `PUT /api/media/{id}` la recibe en la cabecera opcional `X-Captured-At`. Se acepta solo si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Cualquier otro valor (ausente, mal formado o imposible) se ignora: la subida sigue con el mismo código que sin cabecera y la columna queda `NULL`.
+  - **D3 · Reintentos.** Un identificador ya confirmado responde igual que hoy y nunca cambia `captured_at`: el valor se fija en la primera confirmación.
+  - **D4 · Almacenamiento.** La migración `0004_media_captured_at.sql` añade `media.captured_at TEXT NULL`, con un `CHECK` de la forma y un índice parcial sobre `(captured_at, id)` para medios visibles con hora. Las filas existentes quedan en `NULL` y nunca entran en el carrusel.
+  - **D5 · Periodos desde el entorno.** `BODA_PERIOD_<n>_START` y `BODA_PERIOD_<n>_END`, con `n = 1, 2, …` consecutivos y el valor `YYYY-MM-DDTHH:MM` en hora local del evento. El intervalo es `[START, END)`. Un `START` o `END` suelto, un valor mal formado, `START ≥ END` o un hueco en la numeración impiden arrancar. El error nombra la variable, nunca su valor. Sin periodos, la función está apagada: `GET /api/carousels` responde una lista vacía.
+  - **D6 · Tamaño y rotación.** `BODA_CAROUSEL_SIZE` (por defecto 10, entre 1 y 50) y `BODA_CAROUSEL_ROTATION` (duración de Go, por defecto `30m`, al menos `1m`).
+  - **D7 · Ranura y selección.** La ranura es `floor(ahora / rotación)`. Dentro de cada periodo, los medios visibles se ordenan por un valor de dispersión `sha256("boda-carousel|periodo|ranura|id")` y se toman los primeros `SIZE`. Es una permutación determinista con semilla: todos los invitados ven la misma selección en una ranura, y cambia en la siguiente. Los elegidos se devuelven en orden de captura. Esta selección no usa aleatoriedad del sistema, así que las pruebas son reproducibles con un reloj inyectado.
+  - **D8 · Álbum.** `GET /api/carousels/{id}` pagina por la clave `(captured_at, id)` ascendente, con el mismo formato de página que la galería. El cursor codifica `captured_at|id` en base64url; el separador es `|` porque la hora contiene `:`.
+  - **D9 · Límites de la vista.** Solo aparecen periodos con al menos un medio visible. Un medio oculto no aparece ni en la tira ni en el álbum, y su hora no cuenta para el total.
+- **Motivo determinante:** la hora de captura es el único dato que sitúa una foto en su franja sin depender del momento de la subida, y el servidor solo la guarda cuando es verificable. Con los periodos en el entorno, los novios los cambian sin tocar código, y la selección por ranura es estable entre invitados sin estado compartido.
+- **Descartado:**
+  - **Usar `lastModified` como respaldo.** Una copia o una edición la cambia y coloca la foto en una franja falsa, sin que nadie lo note.
+  - **Rechazar la subida si falta la hora.** Perder una foto por un dato accesorio es peor que dejarla fuera del carrusel.
+  - **Periodos guardados en SQLite y editables desde el panel.** Añade una superficie de administración que el evento no necesita; los periodos se fijan antes de la boda, como el resto de la configuración estática.
+  - **Selección aleatoria por petición.** Cada invitado vería una franja distinta y la tira cambiaría a cada recarga.
+  - **`math/rand` con semilla.** La salida de su generador no está garantizada entre versiones de Go; la dispersión con SHA-256 sí es estable.
+  - **Un cursor por hora en vez de `(captured_at, id)`.** Varias fotos pueden compartir segundo; sin el `id` se perderían páginas.
+- **Consecuencias:**
+  - El cliente debe leer EXIF y `mvhd` antes de subir (tarea T3). Hasta entonces, las fotos quedan sin hora y fuera del carrusel, pero siguen en la galería.
+  - La validación de la hora comprueba la forma y el calendario, no la zona horaria. Una hora de dispositivo con el reloj mal puesto ubica la foto en la franja equivocada; es un riesgo aceptado, porque el servidor no tiene otra fuente fiable.
+  - Cada petición del carrusel lee todos los medios de cada periodo para elegir la ranura. Con miles de medios es barato, pero crece con el número de medios de la franja.
+  - Los periodos pueden solaparse en la configuración. El servidor lo permite; el resultado es que un medio aparece en dos burbujas.
+  - Cambiar `BODA_PERIOD_*` exige reiniciar el servicio, como el resto de la configuración estática.
