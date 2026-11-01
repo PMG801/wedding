@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/PMG801/wedding/internal/auth"
+	"github.com/PMG801/wedding/internal/upload"
 )
 
 // Option customizes NewHandler.
@@ -19,6 +20,12 @@ type handlerOptions struct {
 	hiddenMedia        hiddenMediaSource
 	likes              likeStore
 	pinned             pinnedStore
+	resumable          *upload.Resumable
+}
+
+// WithResumable mounts the tus endpoint for original media at /api/uploads/ (ADR-0014).
+func WithResumable(resumable *upload.Resumable) Option {
+	return func(o *handlerOptions) { o.resumable = resumable }
 }
 
 // WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
@@ -49,6 +56,9 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 		switches = options.admin.switches
 	}
 	mux.Handle("GET /e/{token}", guestEntryHandler(eventToken, sessionKey))
+	if options.resumable != nil {
+		registerResumableRoutes(mux, sessionKey, switches, capacity, options.resumable)
+	}
 	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, options.maxVideoBytes, idleTimeout))))
 	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxDerivative, idleTimeout))))
 	registerAdminRoutes(mux, sessionKey, options)

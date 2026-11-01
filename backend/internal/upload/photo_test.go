@@ -95,7 +95,7 @@ func TestSaveDerivativeCannotPublishForHiddenOriginal(t *testing.T) {
 		t.Fatalf("SaveDerivative() error = %v; want ErrMediaHidden", err)
 	}
 	for _, directory := range []string{paths.Tmp, paths.Derived} {
-		entries, err := os.ReadDir(directory)
+		entries, err := readDirWithoutTus(directory)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +151,7 @@ func TestSavePhotoRejectsSizeSignatureAndIncompleteBodyWithoutPublishing(t *test
 			if _, err := store.SavePhoto(context.Background(), testID, test.size, bytes.NewReader(test.body)); err == nil {
 				t.Fatal("SavePhoto() succeeded; want rejection")
 			}
-			entries, err := os.ReadDir(paths.Tmp)
+			entries, err := readDirWithoutTus(paths.Tmp)
 			if err != nil || len(entries) != 0 {
 				t.Fatalf("partial files remain: %v, %v", entries, err)
 			}
@@ -169,7 +169,7 @@ func TestSavePhotoHonorsMinimumFreeDisk(t *testing.T) {
 	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err == nil {
 		t.Fatal("SavePhoto() succeeded below the configured free-disk threshold")
 	}
-	entries, err := os.ReadDir(paths.Tmp)
+	entries, err := readDirWithoutTus(paths.Tmp)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("partial files remain: %v, %v", entries, err)
 	}
@@ -254,7 +254,7 @@ func TestSavePhotoStoresVideoUsingVideoLimitAndKeepsPhotoLimit(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("rejected uploads left %d originals, want only the first video", len(entries))
 	}
-	if left, _ := os.ReadDir(paths.Tmp); len(left) != 0 {
+	if left, _ := readDirWithoutTus(paths.Tmp); len(left) != 0 {
 		t.Fatalf("rejected uploads left temp files: %v", left)
 	}
 }

@@ -121,3 +121,27 @@ func TestLoadFromParsesBackupAndDerivativeSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFromParsesUploadResumeTTL(t *testing.T) {
+	got, err := loadFrom(validEnvironment())
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if got.UploadResumeTTL != 24*time.Hour {
+		t.Errorf("default BODA_UPLOAD_RESUME_TTL = %s; want 24h", got.UploadResumeTTL)
+	}
+
+	values := validEnvironment()
+	values["BODA_UPLOAD_RESUME_TTL"] = "90m"
+	if got, err = loadFrom(values); err != nil || got.UploadResumeTTL != 90*time.Minute {
+		t.Fatalf("BODA_UPLOAD_RESUME_TTL=90m = %s, %v; want 90m", got.UploadResumeTTL, err)
+	}
+
+	for _, invalid := range []string{"soon", "0s", "-1h"} {
+		values := validEnvironment()
+		values["BODA_UPLOAD_RESUME_TTL"] = invalid
+		if _, err := loadFrom(values); err == nil || !strings.Contains(err.Error(), "BODA_UPLOAD_RESUME_TTL") {
+			t.Errorf("BODA_UPLOAD_RESUME_TTL=%q error = %v; want startup error naming the setting", invalid, err)
+		}
+	}
+}

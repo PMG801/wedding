@@ -1,7 +1,7 @@
 export type DerivativeVariant = 't' | 'd'
 
 export interface UploadRequest {
-  method: 'PUT' | 'POST'
+  method: 'POST'
   url: string
   body: Blob
   contentType: string
@@ -15,6 +15,18 @@ export interface UploadResponse {
 
 /** Sends one upload request. Resolves with any HTTP response; rejects only on network failure. */
 export type UploadTransport = (request: UploadRequest, onProgress: (sentBytes: number) => void) => Promise<UploadResponse>
+
+/** An original (photo or video) to send through tus under its media ID. */
+export interface OriginalUpload {
+  id: string
+  file: File
+}
+
+/**
+ * Sends one original. Each call is one attempt: a retry calls it again and resumes
+ * from the server offset. Resolves with any HTTP response; rejects only on network failure.
+ */
+export type OriginalTransport = (upload: OriginalUpload, onProgress: (sentBytes: number) => void) => Promise<UploadResponse>
 
 export interface GalleryItem {
   id: string
@@ -60,10 +72,6 @@ export class NetworkError extends Error {
     super('The upload request could not reach the server')
     this.name = 'NetworkError'
   }
-}
-
-export function originalUploadRequest(id: string, file: File): UploadRequest {
-  return { method: 'PUT', url: `/api/media/${id}`, body: file, contentType: file.type || 'application/octet-stream' }
 }
 
 export function derivativeUploadRequest(id: string, variant: DerivativeVariant, jpeg: Blob): UploadRequest {
@@ -122,7 +130,8 @@ export function createXhrTransport({ stallTimeoutMs = UPLOAD_STALL_TIMEOUT_MS }:
 
 export const xhrTransport: UploadTransport = createXhrTransport()
 
-function parseErrorCode(text: string): string | null {
+/** Reads the JSON `error` code of a response body; null for empty or non-JSON bodies. */
+export function parseErrorCode(text: string): string | null {
   try {
     const body: unknown = JSON.parse(text)
     if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string') {

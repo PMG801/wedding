@@ -106,3 +106,22 @@ func TestSameFilesystemIDs(t *testing.T) {
 		t.Fatal("sameFilesystemIDs() error = nil; want filesystem mismatch")
 	}
 }
+
+func TestInitializeCreatesResumableUploadDirectoryPrivately(t *testing.T) {
+	root := t.TempDir()
+	paths, err := Initialize(root)
+	if err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	want := filepath.Join(root, "tmp", "tus")
+	if paths.Tus != want {
+		t.Fatalf("paths.Tus = %q; want %q", paths.Tus, want)
+	}
+	info, err := os.Stat(want)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("tmp/tus directory: info=%v, err=%v", info, err)
+	}
+	if got := info.Mode().Perm(); got != 0700 {
+		t.Fatalf("tmp/tus permissions = %04o; want 0700", got)
+	}
+}

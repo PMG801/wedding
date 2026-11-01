@@ -57,7 +57,7 @@ func TestPausedUploadsRejectWithoutReadingBodyOrWritingFiles(t *testing.T) {
 		t.Fatalf("paused uploads read the body (%d, %d times); want none", putBody.reads, derivedBody.reads)
 	}
 	for _, directory := range []string{paths.Tmp, paths.Originals, paths.Derived} {
-		entries, err := os.ReadDir(directory)
+		entries, err := readDirWithoutTus(t, directory)
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("paused upload left files in %s: %v, %v", directory, entries, err)
 		}

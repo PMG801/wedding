@@ -20,7 +20,7 @@ Tests: `cd backend && gofmt -l . && go vet ./... && go test -race ./...`; `cd fr
 | T1 | S1 | inline: confirm `develop` has no Cloudflare; drop the `cloudflare-edge` plan; local branches `chore/cloudflare-tunnel`, `docs/cloudflare-plan` deleted only with user OK | none | n/a (nothing on `develop`) |
 | T2 | S2, S3 | inline: ADR-0014 (tus contract, amends ADR-0005/0008/0009), architecture 1.2/1.6, `AGENTS.md` dependency rule, `docs/api.md` contract | item 3 (upload contract) | `2307f5e` |
 | T3 | S2 | worker, test-first: backend tus endpoint, publish on finish, reservation rebuilt from pending uploads, expiry cleanup, Go 1.25 | items 1, 5 | pending |
-| T4 | S2 | worker, test-first: frontend originals through `tus-js-client` with resume | item 3 | pending |
+| T4 | S2 | worker, test-first: frontend originals through `tus-js-client` with resume. Evidence: RED `npx vitest run src/lib/api/uploads.test.ts src/lib/upload/queue.test.ts src/lib/api/media.test.ts` → 14 queue failures + `Failed to resolve import "./uploads"`; parent RED/GREEN for 423 retryable (`retries a tus upload that is still locked…`). GREEN `npm test` 24 files / 234 tests, `npm run build` ok, `svelte-check` 0/0. HEAD resume/404→create is tus-js-client behaviour (not unit-tested). | item 3 | pending (committed after T3) |
 | T5 | S2 | inline: remove `PUT /api/media/{id}`, runbook, smoke resume check | item 3 | pending |
 
 ## Log

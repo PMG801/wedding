@@ -8,6 +8,7 @@
   import UploadPanel from '../components/UploadPanel.svelte'
   import { copy } from '../lib/i18n/es'
   import { fetchGalleryPage, fetchTopMedia, setLike, xhrTransport } from '../lib/api/media'
+  import { tusTransport } from '../lib/api/uploads'
   import { hasAdminSession } from '../lib/api/moderation'
   import { GalleryFeed, type GalleryFeedState, type GalleryView } from '../lib/gallery/feed'
   import { swipeDirection, viewAfterSwipe } from '../lib/gallery/swipe'
@@ -41,6 +42,7 @@
 
   const queue = new UploadQueue({
     transport: xhrTransport,
+    originalTransport: tusTransport,
     makeDerivatives: (file) => createMediaDerivatives(file),
     onChange: (items) => {
       uploads = items

@@ -43,30 +43,60 @@ func (s *Store) free() (uint64, error) {
 	return statfsFree(s.paths.Tmp)
 }
 
-// DiskUsage measures the data volume and the in-flight reservations.
+// DiskUsage measures the data volume and the in-flight reservations: the
+// derivative ledger plus the resumable uploads still waiting for bytes.
 func (s *Store) DiskUsage() (DiskUsage, error) {
+	s.ledger.mu.Lock()
+	defer s.ledger.mu.Unlock()
+	// Reservations first, statfs last, as in admitLocked.
+	reserved, err := s.reservedLocked()
+	if err != nil {
+		return DiskUsage{}, err
+	}
 	free, err := s.free()
 	if err != nil {
 		return DiskUsage{}, err
 	}
-	return DiskUsage{FreeBytes: free, ReservedBytes: uint64(max(s.ledger.reserved.Load(), 0)), MinFreeBytes: s.options.MinFreeBytes}, nil
+	return DiskUsage{FreeBytes: free, ReservedBytes: reserved, MinFreeBytes: s.options.MinFreeBytes}, nil
 }
 
-// reserve admits declaredSize bytes only if the free space minus every
-// outstanding reservation still leaves MinFreeBytes after writing them.
-func (s *Store) reserve(declaredSize int64) (*reservation, error) {
-	s.ledger.mu.Lock()
-	defer s.ledger.mu.Unlock()
+// reservedLocked returns the bytes promised to uploads that have not reached
+// the disk yet. Callers hold ledger.mu.
+func (s *Store) reservedLocked() (uint64, error) {
+	pending, err := s.pendingResumableBytes()
+	if err != nil {
+		return 0, err
+	}
+	return pending + uint64(max(s.ledger.reserved.Load(), 0)), nil
+}
+
+// admitLocked fails with ErrInsufficientStorage unless declaredSize more bytes
+// still leave MinFreeBytes free after every outstanding reservation. Callers hold
+// ledger.mu, so no concurrent admission can pass against the same free space.
+func (s *Store) admitLocked(declaredSize int64) error {
 	// Read the reservations before statfs: bytes written in between then count
 	// twice (conservative) instead of not at all.
-	reserved := uint64(max(s.ledger.reserved.Load(), 0))
+	reserved, err := s.reservedLocked()
+	if err != nil {
+		return err
+	}
 	free, err := s.free()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	need := reserved + uint64(declaredSize)
 	if free < s.options.MinFreeBytes || need > free-s.options.MinFreeBytes {
-		return nil, ErrInsufficientStorage
+		return ErrInsufficientStorage
+	}
+	return nil
+}
+
+// reserve admits declaredSize bytes for a photo or derivative and records them in the ledger.
+func (s *Store) reserve(declaredSize int64) (*reservation, error) {
+	s.ledger.mu.Lock()
+	defer s.ledger.mu.Unlock()
+	if err := s.admitLocked(declaredSize); err != nil {
+		return nil, err
 	}
 	s.ledger.reserved.Add(declaredSize)
 	return &reservation{ledger: &s.ledger, remaining: declaredSize}, nil

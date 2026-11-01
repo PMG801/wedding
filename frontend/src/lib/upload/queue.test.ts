@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { UploadRequest, UploadResponse, UploadTransport } from '../api/media'
+import type { OriginalTransport, OriginalUpload, UploadRequest, UploadResponse, UploadTransport } from '../api/media'
 import type { Derivatives } from '../media/derivatives'
 import { uploadErrorMessage } from '../i18n/es'
 import { UploadQueue, type UploadItem } from './queue'
@@ -20,36 +20,49 @@ function derivatives(): Derivatives {
 }
 
 function setup(overrides: Partial<ConstructorParameters<typeof UploadQueue>[0]> = {}) {
+  /** Derivative requests, in the order they were sent (XHR transport). */
   const requests: UploadRequest[] = []
+  /** Originals, in the order they were sent (tus transport). */
+  const originals: OriginalUpload[] = []
+  /** One line per request: derivatives as `METHOD url`, originals as `TUS url`. */
+  const log: string[] = []
   const transport: UploadTransport = vi.fn(async (request, onProgress) => {
     requests.push(request)
+    log.push(`${request.method} ${request.url}`)
     onProgress(request.body.size)
+    return ok201
+  })
+  const originalTransport: OriginalTransport = vi.fn(async (upload, onProgress) => {
+    originals.push(upload)
+    log.push(`TUS /api/uploads/${upload.id}`)
+    onProgress(upload.file.size)
     return ok201
   })
   const sleep = vi.fn(async (_ms: number) => {})
   const changes: (readonly UploadItem[])[] = []
   const queue = new UploadQueue({
     transport,
+    originalTransport,
     makeDerivatives: async () => derivatives(),
     newId: sequentialIds(),
     sleep,
     onChange: (items) => changes.push(items),
     ...overrides
   })
-  return { queue, requests, transport, sleep, changes }
+  return { queue, requests, originals, log, transport, originalTransport, sleep, changes }
 }
 
 describe('UploadQueue', () => {
-  it('uploads the thumbnail, the detail and then the original with one media ID', async () => {
-    const { queue, requests } = setup()
+  it('uploads the thumbnail and the detail as derivatives, then the original through tus, with one media ID', async () => {
+    const { queue, log } = setup()
     queue.add([photo('a.jpg')])
     await queue.idle()
 
     const id = '00000000-0000-4000-8000-000000000001'
-    expect(requests.map((request) => `${request.method} ${request.url}`)).toEqual([
+    expect(log).toEqual([
       `POST /api/media/${id}/derived?variant=t`,
       `POST /api/media/${id}/derived?variant=d`,
-      `PUT /api/media/${id}`
+      `TUS /api/uploads/${id}`
     ])
     expect(queue.items).toEqual([
       expect.objectContaining({ id, name: 'a.jpg', status: 'done', progress: 1, errorCode: null, usedFallback: false })
@@ -57,31 +70,32 @@ describe('UploadQueue', () => {
   })
 
   it('falls back to the original alone when the browser cannot make derivatives', async () => {
-    const { queue, requests } = setup({ makeDerivatives: async () => null })
+    const { queue, requests, originals } = setup({ makeDerivatives: async () => null })
     queue.add([photo('a.heic', 10, 'image/heic')])
     await queue.idle()
 
-    expect(requests.map((request) => request.method)).toEqual(['PUT'])
+    expect(requests).toEqual([])
+    expect(originals).toHaveLength(1)
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', usedFallback: true }))
   })
 
   it('runs at most two photos at once and starts them in selection order', async () => {
     const started: string[] = []
     const releases: (() => void)[] = []
-    const transport: UploadTransport = (request) => {
-      started.push(request.url)
+    const originalTransport: OriginalTransport = (upload) => {
+      started.push(`/api/uploads/${upload.id}`)
       return new Promise((resolve) => releases.push(() => resolve(ok201)))
     }
-    const { queue } = setup({ transport, makeDerivatives: async () => null })
+    const { queue } = setup({ originalTransport, makeDerivatives: async () => null })
     queue.add([photo('1.jpg'), photo('2.jpg'), photo('3.jpg')])
 
     await vi.waitFor(() => expect(started).toHaveLength(2))
-    expect(started).toEqual(['/api/media/00000000-0000-4000-8000-000000000001', '/api/media/00000000-0000-4000-8000-000000000002'])
+    expect(started).toEqual(['/api/uploads/00000000-0000-4000-8000-000000000001', '/api/uploads/00000000-0000-4000-8000-000000000002'])
     expect(queue.items.map((item) => item.status)).toEqual(['uploading', 'uploading', 'queued'])
 
     releases.shift()?.()
     await vi.waitFor(() => expect(started).toHaveLength(3))
-    expect(started[2]).toBe('/api/media/00000000-0000-4000-8000-000000000003')
+    expect(started[2]).toBe('/api/uploads/00000000-0000-4000-8000-000000000003')
     releases.splice(0).forEach((release) => release())
     await queue.idle()
     expect(queue.items.map((item) => item.status)).toEqual(['done', 'done', 'done'])
@@ -94,12 +108,12 @@ describe('UploadQueue', () => {
       { status: 408, retryAfterSeconds: null, errorCode: 'upload_idle_timeout' },
       { status: 200, retryAfterSeconds: null, errorCode: null }
     ]
-    const transport: UploadTransport = vi.fn(async () => {
+    const originalTransport: OriginalTransport = vi.fn(async () => {
       const next = responses.shift()!
       if (next instanceof Error) throw next
       return next
     })
-    const { queue, sleep } = setup({ transport, makeDerivatives: async () => null, random: () => 1 })
+    const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null, random: () => 1 })
     queue.add([photo('a.jpg')])
     await queue.idle()
 
@@ -108,26 +122,41 @@ describe('UploadQueue', () => {
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
   })
 
-  it('gives up after five retries and keeps the same media ID for a manual retry', async () => {
-    let failing = true
-    const requests: UploadRequest[] = []
-    const transport: UploadTransport = vi.fn(async (request) => {
-      requests.push(request)
-      return failing ? { status: 500, retryAfterSeconds: null, errorCode: 'upload_failed' } : ok201
-    })
-    const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+  it('retries a tus upload that is still locked by an earlier attempt (423)', async () => {
+    const responses: UploadResponse[] = [
+      { status: 423, retryAfterSeconds: null, errorCode: null },
+      { status: 200, retryAfterSeconds: null, errorCode: null }
+    ]
+    const originalTransport: OriginalTransport = vi.fn(async () => responses.shift()!)
+    const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null, random: () => 1 })
     queue.add([photo('a.jpg')])
     await queue.idle()
 
-    expect(requests).toHaveLength(6)
+    expect(originalTransport).toHaveBeenCalledTimes(2)
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1000])
+    expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
+  })
+
+  it('gives up after five retries and keeps the same media ID for a manual retry', async () => {
+    let failing = true
+    const originals: OriginalUpload[] = []
+    const originalTransport: OriginalTransport = vi.fn(async (upload) => {
+      originals.push(upload)
+      return failing ? { status: 500, retryAfterSeconds: null, errorCode: 'upload_failed' } : ok201
+    })
+    const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null })
+    queue.add([photo('a.jpg')])
+    await queue.idle()
+
+    expect(originals).toHaveLength(6)
     expect(sleep).toHaveBeenCalledTimes(5)
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'server' }))
 
     failing = false
     queue.retry(queue.items[0].id)
     await queue.idle()
-    expect(requests).toHaveLength(7)
-    expect(new Set(requests.map((request) => request.url))).toEqual(new Set(['/api/media/00000000-0000-4000-8000-000000000001']))
+    expect(originals).toHaveLength(7)
+    expect(new Set(originals.map((upload) => upload.id))).toEqual(new Set(['00000000-0000-4000-8000-000000000001']))
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null, progress: 1 }))
   })
 
@@ -137,8 +166,8 @@ describe('UploadQueue', () => {
       [507, 'storage_full'],
       [415, 'rejected']
     ] as const) {
-      const transport: UploadTransport = vi.fn(async () => ({ status, retryAfterSeconds: null, errorCode: null }))
-      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+      const originalTransport: OriginalTransport = vi.fn(async () => ({ status, retryAfterSeconds: null, errorCode: null }))
+      const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null })
       queue.add([photo('a.jpg')])
       await queue.idle()
       expect(sleep).not.toHaveBeenCalled()
@@ -152,25 +181,27 @@ describe('UploadQueue', () => {
       requests.push(request)
       return request.url.endsWith('variant=t') ? { status: 415, retryAfterSeconds: null, errorCode: null } : ok201
     })
-    const { queue } = setup({ transport })
+    const { queue, originalTransport } = setup({ transport })
     queue.add([photo('a.jpg')])
     await queue.idle()
 
-    expect(requests.map((request) => request.method)).toEqual(['POST', 'POST', 'PUT'])
+    expect(requests.map((request) => request.method)).toEqual(['POST', 'POST'])
+    expect(originalTransport).toHaveBeenCalledTimes(1)
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
   })
 
   it('fails the whole photo when the guest session expires during a derivative', async () => {
     const transport: UploadTransport = vi.fn(async () => ({ status: 401, retryAfterSeconds: null, errorCode: null }))
-    const { queue } = setup({ transport })
+    const { queue, originalTransport } = setup({ transport })
     queue.add([photo('a.jpg')])
     await queue.idle()
     expect(transport).toHaveBeenCalledTimes(1)
+    expect(originalTransport).not.toHaveBeenCalled()
     expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'session_expired' }))
   })
 
   it('rejects unsupported, empty and oversized files before uploading', async () => {
-    const { queue, transport } = setup({ maxFileBytes: 100 })
+    const { queue, transport, originalTransport } = setup({ maxFileBytes: 100 })
     queue.add([
       photo('clip.avi', 10, 'video/x-msvideo'),
       photo('empty.jpg', 0),
@@ -187,16 +218,22 @@ describe('UploadQueue', () => {
       ['IMG_0001.HEIC', 'done', null],
       ['scan.PNG', 'done', null]
     ])
-    expect(transport).toHaveBeenCalledTimes(6)
+    expect(transport).toHaveBeenCalledTimes(4)
+    expect(originalTransport).toHaveBeenCalledTimes(2)
   })
 
-  it('reports monotonic progress across all requests of a photo', async () => {
+  it('reports monotonic progress across the derivatives and the original of a photo', async () => {
     const transport: UploadTransport = vi.fn(async (request, onProgress) => {
       onProgress(request.body.size / 2)
       onProgress(request.body.size)
       return ok201
     })
-    const { queue, changes } = setup({ transport })
+    const originalTransport: OriginalTransport = vi.fn(async (upload, onProgress) => {
+      onProgress(upload.file.size / 2)
+      onProgress(upload.file.size)
+      return ok201
+    })
+    const { queue, changes } = setup({ transport, originalTransport })
     queue.add([photo('a.jpg', 10)])
     await queue.idle()
 
@@ -223,16 +260,22 @@ describe('UploadQueue', () => {
     const running = new Set<string>()
     const log: string[] = []
     const gates: (() => void)[] = []
-    const transport: UploadTransport = async (request) => {
-      if (request.method !== 'PUT') return ok201
-      const name = (request.body as File).name
+    const originalTransport: OriginalTransport = async (upload) => {
+      const name = upload.file.name
       log.push(`start ${name} while [${[...running].join(',')}]`)
       running.add(name)
       await new Promise<void>((resolve) => gates.push(resolve))
       running.delete(name)
       return ok201
     }
-    const queue = new UploadQueue({ transport, makeDerivatives: async () => null, newId: sequentialIds(), sleep: async () => {}, concurrency: 2 })
+    const queue = new UploadQueue({
+      transport: async () => ok201,
+      originalTransport,
+      makeDerivatives: async () => null,
+      newId: sequentialIds(),
+      sleep: async () => {},
+      concurrency: 2
+    })
     queue.add([photo('p1.jpg'), photo('p2.jpg'), photo('v.mp4', 10, 'video/mp4'), photo('p3.jpg')])
     const release = async () => {
       await vi.waitFor(() => expect(gates.length).toBeGreaterThan(0))
@@ -250,8 +293,8 @@ describe('UploadQueue', () => {
     /** Runs one photo that fails once with the given response, and returns the single delay used. */
     async function firstDelay(random: () => number, response: UploadResponse): Promise<number> {
       let calls = 0
-      const transport: UploadTransport = async () => (calls++ === 0 ? response : ok201)
-      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null, random })
+      const originalTransport: OriginalTransport = async () => (calls++ === 0 ? response : ok201)
+      const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null, random })
       queue.add([photo('a.jpg')])
       await queue.idle()
       expect(sleep).toHaveBeenCalledTimes(1)
@@ -285,30 +328,31 @@ describe('UploadQueue', () => {
     const pausedResponse: UploadResponse = { status: 503, retryAfterSeconds: 30, errorCode: 'uploads_paused' }
 
     it('does not retry automatically while uploads are paused', async () => {
-      const transport: UploadTransport = vi.fn(async () => pausedResponse)
-      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+      const originalTransport: OriginalTransport = vi.fn(async () => pausedResponse)
+      const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null })
       queue.add([photo('a.jpg')])
       await queue.idle()
 
-      expect(transport).toHaveBeenCalledTimes(1)
+      expect(originalTransport).toHaveBeenCalledTimes(1)
       expect(sleep).not.toHaveBeenCalled()
       expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'uploads_paused' }))
     })
 
     it('stops the photo at the first paused derivative instead of sending the original', async () => {
       const transport: UploadTransport = vi.fn(async () => pausedResponse)
-      const { queue } = setup({ transport })
+      const { queue, originalTransport } = setup({ transport })
       queue.add([photo('a.jpg')])
       await queue.idle()
 
       expect(transport).toHaveBeenCalledTimes(1)
+      expect(originalTransport).not.toHaveBeenCalled()
       expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'failed', errorCode: 'uploads_paused' }))
     })
 
     it('lets the guest retry by hand once uploads resume', async () => {
       let paused = true
-      const transport: UploadTransport = vi.fn(async () => (paused ? pausedResponse : ok201))
-      const { queue, sleep } = setup({ transport, makeDerivatives: async () => null })
+      const originalTransport: OriginalTransport = vi.fn(async () => (paused ? pausedResponse : ok201))
+      const { queue, sleep } = setup({ originalTransport, makeDerivatives: async () => null })
       queue.add([photo('a.jpg')])
       await queue.idle()
       expect(queue.items[0].status).toBe('failed')

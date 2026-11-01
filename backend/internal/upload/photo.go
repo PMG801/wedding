@@ -66,6 +66,10 @@ type Options struct {
 	// StagedDerivativeTTL is how long reconciliation keeps a staged derivative
 	// whose original was never confirmed; zero keeps it forever.
 	StagedDerivativeTTL time.Duration
+	// UploadResumeTTL expires resumable uploads idle for longer; zero keeps them.
+	UploadResumeTTL time.Duration
+	// FreeSpace overrides the free-space probe; tests use it to simulate a full disk.
+	FreeSpace func(path string) (uint64, error)
 }
 
 var videoBrands = map[string]PhotoType{
@@ -120,6 +124,9 @@ type Store struct {
 	ledger    diskLedger
 	// freeSpace overrides statfs in tests.
 	freeSpace func(path string) (uint64, error)
+	// patchMu guards patching, the resumable PATCH requests in flight per ID.
+	patchMu  sync.Mutex
+	patching map[string]int
 }
 
 // NewStore constructs a photo store using already-initialized paths and SQLite.
@@ -130,11 +137,11 @@ func NewStore(database *sql.DB, paths storage.Paths, options Options) (*Store, e
 	if options.MaxBytes <= 0 || options.MaxConcurrent <= 0 {
 		return nil, errors.New("positive photo size and concurrency limits are required")
 	}
-	return &Store{db: database, paths: paths, options: options, semaphore: make(chan struct{}, options.MaxConcurrent)}, nil
+	return &Store{db: database, paths: paths, options: options, semaphore: make(chan struct{}, options.MaxConcurrent), freeSpace: options.FreeSpace, patching: make(map[string]int)}, nil
 }
 
 // SavePhoto validates and streams a declared-size photo into the originals directory.
-func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, body io.Reader) (Media, error) {
+func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, body io.Reader) (media Media, err error) {
 	if !ValidID(id) {
 		return Media{}, errors.New("media ID must be a canonical lowercase UUIDv4")
 	}
@@ -147,14 +154,14 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	}
 	defer unlock()
 
-	if existing, err := s.confirmed(ctx, id); err == nil {
+	if existing, lookupErr := s.confirmed(ctx, id); lookupErr == nil {
 		if existing.Visibility == "visible" {
 			s.promotePendingDerivatives(id)
 		}
 		existing.AlreadyConfirmed = true
 		return existing, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return Media{}, fmt.Errorf("check existing media: %w", err)
+	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+		return Media{}, fmt.Errorf("check existing media: %w", lookupErr)
 	}
 	if declaredSize <= 0 || declaredSize > s.maxMediaBytes() {
 		if declaredSize > s.maxMediaBytes() {
@@ -185,56 +192,73 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	if err != nil {
 		return Media{}, fmt.Errorf("create partial upload: %w", err)
 	}
-	partExists := true
 	defer func() {
 		_ = file.Close()
-		if partExists {
+		if err != nil {
 			_ = os.Remove(partPath)
 		}
 	}()
 
-	headerSize := declaredSize
-	if headerSize > 64 {
-		headerSize = 64
-	}
-	header := make([]byte, int(headerSize))
-	if _, err := io.ReadFull(contextReader{ctx: ctx, reader: body}, header); err != nil {
+	header := make([]byte, int(min(declaredSize, 64)))
+	if _, err = io.ReadFull(contextReader{ctx: ctx, reader: body}, header); err != nil {
 		return Media{}, fmt.Errorf("read photo signature: %w", err)
 	}
-	photoType, err := DetectMediaType(header)
-	if err != nil {
+	// Reject unsupported or oversized types before any body byte reaches disk.
+	if _, err = s.checkMediaType(header, declaredSize); err != nil {
 		return Media{}, err
 	}
-	if strings.HasPrefix(photoType.MIME, "video/") {
-		if declaredSize > s.maxVideoBytes() {
-			return Media{}, ErrVideoTooLarge
-		}
-	} else if declaredSize > s.options.MaxBytes {
-		return Media{}, ErrPhotoTooLarge
-	}
 	out := reserved.writer(file)
-	if _, err := out.Write(header); err != nil {
+	if _, err = out.Write(header); err != nil {
 		return Media{}, fmt.Errorf("write photo: %w", err)
 	}
 	remaining := declaredSize - int64(len(header))
-	if _, err := io.CopyN(out, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
+	if _, err = io.CopyN(out, contextReader{ctx: ctx, reader: body}, remaining); err != nil {
 		return Media{}, fmt.Errorf("stream photo: %w", err)
 	}
 	var extra [1]byte
-	if n, err := (contextReader{ctx: ctx, reader: body}).Read(extra[:]); n != 0 || err != io.EOF {
-		if err != nil && err != io.EOF {
-			return Media{}, fmt.Errorf("check photo size: %w", err)
+	if n, readErr := (contextReader{ctx: ctx, reader: body}).Read(extra[:]); n != 0 || readErr != io.EOF {
+		if readErr != nil && readErr != io.EOF {
+			return Media{}, fmt.Errorf("check photo size: %w", readErr)
 		}
 		return Media{}, ErrPhotoSizeMismatch
 	}
-	if err := ctx.Err(); err != nil {
+	if err = ctx.Err(); err != nil {
 		return Media{}, err
 	}
-	if err := file.Sync(); err != nil {
-		return Media{}, fmt.Errorf("sync photo: %w", err)
-	}
-	if err := file.Close(); err != nil {
+	if err = file.Close(); err != nil {
 		return Media{}, fmt.Errorf("close photo: %w", err)
+	}
+	media, err = s.publishPart(ctx, id, partPath, declaredSize)
+	return media, err
+}
+
+// checkMediaType detects the type from the leading bytes and applies the size
+// limit of that type.
+func (s *Store) checkMediaType(header []byte, size int64) (PhotoType, error) {
+	photoType, err := DetectMediaType(header)
+	if err != nil {
+		return PhotoType{}, err
+	}
+	if strings.HasPrefix(photoType.MIME, "video/") {
+		if size > s.maxVideoBytes() {
+			return PhotoType{}, ErrVideoTooLarge
+		}
+	} else if size > s.options.MaxBytes {
+		return PhotoType{}, ErrPhotoTooLarge
+	}
+	return photoType, nil
+}
+
+// publishPart is the publication tail shared by streamed photos and resumable
+// uploads (ADR-0014). It checks the complete file at partPath, syncs it, moves
+// it into originals under its chronological name, syncs the directory and
+// confirms it in SQLite. The caller holds the ID lock. A failure before the move
+// leaves partPath in place. A failure after it moves the file back, so the
+// complete upload survives for a retry.
+func (s *Store) publishPart(ctx context.Context, id, partPath string, declaredSize int64) (Media, error) {
+	photoType, err := s.checkPart(partPath, declaredSize)
+	if err != nil {
+		return Media{}, err
 	}
 
 	now := time.Now().UTC()
@@ -243,23 +267,47 @@ func (s *Store) SavePhoto(ctx context.Context, id string, declaredSize int64, bo
 	if err := os.Rename(partPath, finalPath); err != nil {
 		return Media{}, fmt.Errorf("publish photo: %w", err)
 	}
-	partExists = false
-	dir, err := os.Open(s.paths.Originals)
-	if err != nil {
-		return Media{}, fmt.Errorf("open originals directory: %w", err)
-	}
-	if err := dir.Sync(); err != nil {
-		_ = dir.Close()
+	restore := func() { _ = os.Rename(finalPath, partPath) }
+	if err := syncDirectory(s.paths.Originals); err != nil {
+		restore()
 		return Media{}, fmt.Errorf("sync originals directory: %w", err)
 	}
-	_ = dir.Close()
 	media := Media{ID: id, StorageName: storageName, MIME: photoType.MIME, Visibility: "visible", SizeBytes: declaredSize, ConfirmedAt: now.UnixMilli()}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, ?, ?, ?, ?)", media.ID, media.StorageName, media.MIME, media.SizeBytes, media.ConfirmedAt)
-	if err != nil {
+	if _, err := s.db.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, ?, ?, ?, ?)", media.ID, media.StorageName, media.MIME, media.SizeBytes, media.ConfirmedAt); err != nil {
+		restore()
 		return Media{}, fmt.Errorf("confirm photo in database: %w", err)
 	}
 	s.promotePendingDerivatives(id)
 	return media, nil
+}
+
+// checkPart verifies the size, the signature and the per-type limit of the
+// complete file at partPath, and syncs it to disk.
+func (s *Store) checkPart(partPath string, declaredSize int64) (PhotoType, error) {
+	file, err := os.Open(partPath)
+	if err != nil {
+		return PhotoType{}, fmt.Errorf("open complete upload: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return PhotoType{}, fmt.Errorf("inspect complete upload: %w", err)
+	}
+	if info.Size() != declaredSize {
+		return PhotoType{}, ErrPhotoSizeMismatch
+	}
+	header := make([]byte, int(min(declaredSize, 64)))
+	if _, err := io.ReadFull(file, header); err != nil {
+		return PhotoType{}, fmt.Errorf("read photo signature: %w", err)
+	}
+	photoType, err := s.checkMediaType(header, declaredSize)
+	if err != nil {
+		return PhotoType{}, err
+	}
+	if err := file.Sync(); err != nil {
+		return PhotoType{}, fmt.Errorf("sync photo: %w", err)
+	}
+	return photoType, nil
 }
 
 func (s *Store) confirmed(ctx context.Context, id string) (Media, error) {

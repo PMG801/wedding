@@ -19,6 +19,8 @@ type Paths struct {
 	Derived    string
 	Hidden     string
 	Quarantine string
+	// Tus holds resumable originals in progress; it lives inside tmp.
+	Tus string
 }
 
 // Initialize validates an existing writable root, creates its managed child
@@ -78,9 +80,22 @@ func Initialize(root string) (Paths, error) {
 		}
 	}
 
+	// Resumable uploads (ADR-0014) live below tmp so they share its filesystem.
+	paths.Tus = filepath.Join(paths.Tmp, "tus")
+	if err := ensureManagedDirectory(paths.Tus); err != nil {
+		return Paths{}, err
+	}
+
 	tmpDevice, err := filesystemDevice(paths.Tmp)
 	if err != nil {
 		return Paths{}, fmt.Errorf("cannot identify filesystem for tmp directory: %w", err)
+	}
+	tusDevice, err := filesystemDevice(paths.Tus)
+	if err != nil {
+		return Paths{}, fmt.Errorf("cannot identify filesystem for tus directory: %w", err)
+	}
+	if err := sameFilesystemIDs(tmpDevice, tusDevice); err != nil {
+		return Paths{}, fmt.Errorf("tmp and tus directories must be on the same filesystem: %w", err)
 	}
 	originalsDevice, err := filesystemDevice(paths.Originals)
 	if err != nil {

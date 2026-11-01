@@ -1,7 +1,6 @@
 import {
   derivativeUploadRequest,
-  originalUploadRequest,
-  type UploadRequest,
+  type OriginalTransport,
   type UploadResponse,
   type UploadTransport
 } from '../api/media'
@@ -34,7 +33,10 @@ export interface UploadItem {
 }
 
 export interface UploadQueueOptions {
+  /** Sends derivatives (POST /api/media/{id}/derived). */
   transport: UploadTransport
+  /** Sends originals through tus (ADR-0014). Called once per attempt; a retry resumes. */
+  originalTransport: OriginalTransport
   makeDerivatives: (file: File) => Promise<Derivatives | null>
   newId?: () => string
   sleep?: (ms: number) => Promise<void>
@@ -53,7 +55,17 @@ export interface UploadQueueOptions {
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/heif'])
 const ACCEPTED_EXTENSION = /\.(jpe?g|png|heic|heif)$/i
 
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504])
+// 423: a tus upload still locked by an earlier attempt that the server is releasing.
+const RETRYABLE_STATUSES = new Set([408, 423, 429, 500, 502, 503, 504])
+
+/** One send of a step; called again on every retry. */
+type Attempt = (onProgress: (sent: number) => void) => Promise<UploadResponse>
+
+interface Step {
+  size: number
+  optional: boolean
+  send: Attempt
+}
 
 class UploadFailure extends Error {
   constructor(readonly code: UploadErrorCode) {
@@ -168,21 +180,31 @@ export class UploadQueue {
     this.#update(item, { status: 'preparing' })
     const derivatives = await this.#options.makeDerivatives(file).catch(() => null)
 
-    const steps: { request: UploadRequest; optional: boolean }[] = []
+    const steps: Step[] = []
     if (derivatives !== null) {
-      steps.push({ request: derivativeUploadRequest(id, 't', derivatives.t), optional: true })
-      steps.push({ request: derivativeUploadRequest(id, 'd', derivatives.d), optional: true })
+      for (const [variant, blob] of [['t', derivatives.t], ['d', derivatives.d]] as const) {
+        const request = derivativeUploadRequest(id, variant, blob)
+        steps.push({
+          size: blob.size,
+          optional: true,
+          send: (onProgress) => this.#options.transport(request, onProgress)
+        })
+      }
     }
-    steps.push({ request: originalUploadRequest(id, file), optional: false })
-    const totalBytes = steps.reduce((sum, step) => sum + step.request.body.size, 0)
+    steps.push({
+      size: file.size,
+      optional: false,
+      send: (onProgress) => this.#options.originalTransport({ id, file }, onProgress)
+    })
+    const totalBytes = steps.reduce((sum, step) => sum + step.size, 0)
     this.#update(item, { status: 'uploading', usedFallback: derivatives === null })
 
     let doneBytes = 0
     try {
       for (const step of steps) {
         try {
-          await this.#send(item, step.request, (sent) => {
-            const progress = (doneBytes + Math.min(sent, step.request.body.size)) / totalBytes
+          await this.#send(item, step.send, (sent) => {
+            const progress = (doneBytes + Math.min(sent, step.size)) / totalBytes
             if (progress > item.progress) this.#update(item, { progress })
           })
         } catch (error) {
@@ -191,7 +213,7 @@ export class UploadQueue {
           const code = error instanceof UploadFailure ? error.code : 'network'
           if (!step.optional || code === 'session_expired' || code === 'storage_full' || code === 'uploads_paused') throw error
         }
-        doneBytes += step.request.body.size
+        doneBytes += step.size
       }
       this.#update(item, { status: 'done', progress: 1 })
     } catch (error) {
@@ -199,11 +221,12 @@ export class UploadQueue {
     }
   }
 
-  async #send(item: UploadItem, request: UploadRequest, onProgress: (sent: number) => void): Promise<void> {
-    for (let attempt = 0; ; attempt++) {
+  /** Runs one step with bounded retries; each attempt calls `attempt` again. */
+  async #send(item: UploadItem, attempt: Attempt, onProgress: (sent: number) => void): Promise<void> {
+    for (let tries = 0; ; tries++) {
       let response: UploadResponse | null = null
       try {
-        response = await this.#options.transport(request, onProgress)
+        response = await attempt(onProgress)
       } catch {
         // Network failure: retryable like a transient server error.
       }
@@ -216,10 +239,10 @@ export class UploadQueue {
       if (response !== null && !RETRYABLE_STATUSES.has(response.status)) {
         throw new UploadFailure(permanentFailure(response.status))
       }
-      if (attempt >= this.#options.maxRetries) {
+      if (tries >= this.#options.maxRetries) {
         throw new UploadFailure(response === null ? 'network' : 'server')
       }
-      const delay = Math.max(equalJitter(this.#options.baseDelayMs * 2 ** attempt, this.#options.random), (response?.retryAfterSeconds ?? 0) * 1000)
+      const delay = Math.max(equalJitter(this.#options.baseDelayMs * 2 ** tries, this.#options.random), (response?.retryAfterSeconds ?? 0) * 1000)
       this.#update(item, { status: 'retrying' })
       await this.#options.sleep(delay)
       this.#update(item, { status: 'uploading' })

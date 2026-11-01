@@ -96,6 +96,10 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 	if err != nil {
 		return nil, fmt.Errorf("initialize pinned items: %w", err)
 	}
+	resumable, err := photos.Resumable(cfg.UploadIdleTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("initialize resumable uploads: %w", err)
+	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
 		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
@@ -103,7 +107,8 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 		httpapi.WithModeration(photos),
 		httpapi.WithHiddenMedia(gallery),
 		httpapi.WithLikes(likes),
-		httpapi.WithPinned(pinnedItems)), nil
+		httpapi.WithPinned(pinnedItems),
+		httpapi.WithResumable(resumable)), nil
 }
 
 // newPhotoStore builds the upload store with the configured limits, disk
@@ -116,6 +121,7 @@ func newPhotoStore(database *sql.DB, cfg config.Config, paths storage.Paths) (*u
 		StagedDerivativeTTL: cfg.StagedDerivativeTTL,
 		MaxConcurrent:       cfg.MaxConcurrentUploads,
 		MinFreeBytes:        uint64(cfg.DiskMinFreeBytes),
+		UploadResumeTTL:     cfg.UploadResumeTTL,
 	})
 }
 
@@ -180,7 +186,7 @@ func runServe() (resultErr error) {
 		}
 		slog.Info("reconciled upload storage",
 			"removed_partials", report.RemovedPartials, "quarantined", report.Quarantined,
-			"promoted_derivatives", report.PromotedDerivatives, "removed_staged", report.RemovedStaged, "skipped_active", report.SkippedActive, "visibility_repairs", report.VisibilityRepairs)
+			"promoted_derivatives", report.PromotedDerivatives, "removed_staged", report.RemovedStaged, "expired_resumable", report.ExpiredResumable, "skipped_active", report.SkippedActive, "visibility_repairs", report.VisibilityRepairs)
 	})
 
 	// The backup runs in the background so a slow copy never delays startup.

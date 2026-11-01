@@ -117,7 +117,7 @@ func TestSaveDerivativeHonorsConcurrentLimit(t *testing.T) {
 func assertNoDerivativeArtifacts(t *testing.T, paths storage.Paths) {
 	t.Helper()
 	for _, directory := range []string{paths.Tmp, paths.Derived} {
-		entries, err := os.ReadDir(directory)
+		entries, err := readDirWithoutTus(directory)
 		if err != nil || len(entries) != 0 {
 			t.Errorf("derivative artifacts in %s = %v, %v; want none", directory, entries, err)
 		}

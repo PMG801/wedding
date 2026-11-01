@@ -86,7 +86,7 @@ func TestDerivativeUploadRejectsInvalidInputsWithoutWritingFiles(t *testing.T) {
 				t.Fatalf("derivative POST response = %d %q; want %d %q", response.Code, response.Body.String(), test.wantStatus, wantBody)
 			}
 			for _, directory := range []string{paths.Tmp, paths.Derived} {
-				entries, err := os.ReadDir(directory)
+				entries, err := readDirWithoutTus(t, directory)
 				if err != nil || len(entries) != 0 {
 					t.Fatalf("rejected derivative left files in %s: %v, %v", directory, entries, err)
 				}
@@ -106,7 +106,7 @@ func TestDerivativeUploadRequiresJPEGContentType(t *testing.T) {
 		t.Fatalf("derivative with non-JPEG content type = %d %q; want 415", response.Code, response.Body.String())
 	}
 	for _, directory := range []string{paths.Tmp, paths.Derived} {
-		entries, err := os.ReadDir(directory)
+		entries, err := readDirWithoutTus(t, directory)
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("rejected content type left files in %s: %v, %v", directory, entries, err)
 		}
@@ -123,7 +123,7 @@ func TestDerivativeUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T)
 		t.Fatalf("derivative under free-disk threshold = %d %q; want 507", response.Code, response.Body.String())
 	}
 	for _, directory := range []string{paths.Tmp, paths.Derived} {
-		entries, err := os.ReadDir(directory)
+		entries, err := readDirWithoutTus(t, directory)
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("rejected derivative left files in %s: %v, %v", directory, entries, err)
 		}
@@ -479,7 +479,7 @@ func TestVideoUploadUsesVideoLimitAndRejectsOversizedMedia(t *testing.T) {
 	if entries, _ := os.ReadDir(paths.Originals); len(entries) != 1 {
 		t.Fatalf("originals = %d files; want only the accepted video", len(entries))
 	}
-	if entries, _ := os.ReadDir(paths.Tmp); len(entries) != 0 {
+	if entries, _ := readDirWithoutTus(t, paths.Tmp); len(entries) != 0 {
 		t.Fatalf("rejected uploads left temp files: %v", entries)
 	}
 }

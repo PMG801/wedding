@@ -7,7 +7,6 @@ import {
   GuestSessionRequiredError,
   MediaNotFoundError,
   NetworkError,
-  originalUploadRequest,
   setLike,
   type UploadRequest
 } from './media'
@@ -21,11 +20,16 @@ class FakeXHR {
   status = 0
   responseText = ''
   aborted = false
+  method = ''
+  url = ''
 
   constructor() {
     FakeXHR.instances.push(this)
   }
-  open(): void {}
+  open(method: string, url: string): void {
+    this.method = method
+    this.url = url
+  }
   setRequestHeader(): void {}
   getResponseHeader(): string | null {
     return null
@@ -48,7 +52,7 @@ afterEach(() => {
 function startUpload(stallTimeoutMs?: number) {
   vi.useFakeTimers()
   vi.stubGlobal('XMLHttpRequest', FakeXHR)
-  const request: UploadRequest = { method: 'PUT', url: `/api/media/${id}`, body: new Blob(['x']), contentType: 'image/jpeg' }
+  const request: UploadRequest = { method: 'POST', url: `/api/media/${id}/derived?variant=t`, body: new Blob(['x']), contentType: 'image/jpeg' }
   const transport = createXhrTransport(stallTimeoutMs === undefined ? {} : { stallTimeoutMs })
   const outcome = { settled: false, error: null as unknown, response: null as unknown }
   transport(request, () => {}).then(
@@ -61,21 +65,6 @@ function startUpload(stallTimeoutMs?: number) {
 const id = '123e4567-e89b-42d3-a456-426614174000'
 
 describe('upload requests', () => {
-  it('sends the original as a raw PUT to its media ID', () => {
-    const file = new File(['x'], 'IMG_1.HEIC', { type: 'image/heic' })
-    expect(originalUploadRequest(id, file)).toEqual({
-      method: 'PUT',
-      url: `/api/media/${id}`,
-      body: file,
-      contentType: 'image/heic'
-    })
-  })
-
-  it('falls back to a generic content type when the browser reports none', () => {
-    const file = new File(['x'], 'IMG_1.HEIC')
-    expect(originalUploadRequest(id, file).contentType).toBe('application/octet-stream')
-  })
-
   it('posts each derivative variant as raw JPEG', () => {
     const blob = new Blob(['x'], { type: 'image/jpeg' })
     expect(derivativeUploadRequest(id, 't', blob)).toEqual({
@@ -84,6 +73,19 @@ describe('upload requests', () => {
       body: blob,
       contentType: 'image/jpeg'
     })
+  })
+
+  it('still sends a derivative as a POST to its derived endpoint through XHR', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+    const transport = createXhrTransport()
+    const pending = transport(derivativeUploadRequest(id, 'd', new Blob(['x'], { type: 'image/jpeg' })), () => {})
+    const xhr = FakeXHR.instances[0]
+    expect(xhr.method).toBe('POST')
+    expect(xhr.url).toBe(`/api/media/${id}/derived?variant=d`)
+
+    xhr.status = 201
+    xhr.onload?.()
+    await expect(pending).resolves.toEqual({ status: 201, retryAfterSeconds: null, errorCode: null })
   })
 })
 

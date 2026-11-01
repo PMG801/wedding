@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"testing"
 	"time"
 )
@@ -127,7 +126,7 @@ func TestFailedUploadReleasesItsReservation(t *testing.T) {
 	if _, err := store.SavePhoto(context.Background(), secondID, 100, bytes.NewReader(pngOfSize(100))); err != nil {
 		t.Fatalf("photo after a failed upload = %v", err)
 	}
-	if entries, err := os.ReadDir(store.paths.Tmp); err != nil || len(entries) != 0 {
+	if entries, err := readDirWithoutTus(store.paths.Tmp); err != nil || len(entries) != 0 {
 		t.Fatalf("tmp entries = %v, %v; want none", entries, err)
 	}
 }
