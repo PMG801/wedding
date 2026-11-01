@@ -111,12 +111,12 @@ Protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) con las extensi
 | Estado | Significado y respuesta |
 | --- | --- |
 | `201 Created` | Subida creada; `Location: /api/uploads/{id}`. |
-| `400 Bad Request` | `id` ausente o no canónico (`{"error":"invalid_media_id"}`). |
-| `409 Conflict` | El medio ya está confirmado (`{"error":"already_confirmed"}`); el cliente lo trata como éxito. |
+| `400 Bad Request` | `id` ausente o no canónico (`{"error":"invalid_media_id"}`) o `Upload-Length` igual a 0 (`{"error":"invalid_upload_length"}`). |
+| `409 Conflict` | El medio ya está confirmado (`{"error":"already_confirmed"}`); el cliente lo trata como éxito. Si ya hay una subida pendiente con ese identificador, `{"error":"upload_in_progress"}`: se reanuda con `HEAD`, no se vuelve a crear. |
 | `413 Request Entity Too Large` | `Upload-Length` supera el mayor de los dos límites (`{"error":"media_too_large"}`). |
 | `507 Insufficient Storage` | `libre − reservado − Upload-Length` quedaría por debajo de `BODA_DISK_MIN_FREE_BYTES` (`{"error":"insufficient_storage"}`). |
 
-**`HEAD /api/uploads/{id}` — consultar el progreso.** `200` con `Upload-Offset`, `Upload-Length` y `Cache-Control: no-store`. Para un medio ya confirmado responde como una subida completa (`Upload-Offset` igual a `Upload-Length`), de modo que el reintento termina sin reenviar nada. Si la subida tiene todos sus bytes pero aún no está publicada (fallo al publicar), el `HEAD` vuelve a intentarlo: `200` completo si lo consigue, o `500 {"error":"upload_failed"}`, o el `413`/`415` del `PATCH` final, que también borra la subida. `404` si no existe ni está confirmado.
+**`HEAD /api/uploads/{id}` — consultar el progreso.** `200` con `Upload-Offset`, `Upload-Length` y `Cache-Control: no-store`. Para un medio ya confirmado responde como una subida completa (`Upload-Offset` igual a `Upload-Length`), de modo que el reintento termina sin reenviar nada. Si la subida tiene todos sus bytes pero aún no está publicada (fallo al publicar), el `HEAD` vuelve a intentarlo: `200` completo si lo consigue, o `500 {"error":"upload_failed"}`, o el `413`/`415` del `PATCH` final, que también borra la subida. `404 {"error":"upload_not_found"}` si no existe ni está confirmado.
 
 **`PATCH /api/uploads/{id}` — enviar un trozo.** `Content-Type: application/offset+octet-stream` y `Upload-Offset` igual al progreso actual. Caddy reenvía el cuerpo sin buffering; el plazo de lectura es de inactividad (`BODA_UPLOAD_IDLE_TIMEOUT`) y lo recibido antes de un corte se conserva. Cada `PATCH` ocupa un espacio de `BODA_MAX_CONCURRENT_UPLOADS`. Con el último byte, la aplicación comprueba firma y límite, sincroniza, publica en `originals/` y confirma en SQLite antes de responder.
 
@@ -128,7 +128,7 @@ Protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) con las extensi
 | `503 Service Unavailable` | Capacidad completa: `Retry-After: 1` y `{"error":"upload_capacity_reached"}`, sin leer el cuerpo. |
 | `500 Internal Server Error` | Error interno al publicar (`{"error":"upload_failed"}`). La subida completa se conserva: el siguiente `HEAD` reintenta la publicación y responde `500 {"error":"upload_failed"}` mientras no lo consiga. |
 
-**`DELETE /api/uploads/{id}` — cancelar.** `204` y borra la subida a medias; `404` si no existe.
+**`DELETE /api/uploads/{id}` — cancelar.** `204` y borra la subida a medias; `404 {"error":"upload_not_found"}` si no existe. `HEAD` y `DELETE` funcionan también con las subidas en pausa. Un `PATCH` sobre un identificador no canónico responde `404 {"error":"upload_not_found"}`.
 
 Las subidas a medias sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 h por defecto) las borra la conciliación.
 
