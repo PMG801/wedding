@@ -7,6 +7,7 @@ Tests: `cd backend && gofmt -l . && go vet ./... && go test -race ./...`; `cd fr
 - **D2 — Scope.** Every original (photo and video) goes through tus. Client derivatives (`POST /api/media/{id}/derived`) keep their short request.
 - **D3 — Middle cache.** Discarded; the reason is documented in `docs/architecture.md` (1.6).
 - **D4 — Order.** Cloudflare removal first, then tus.
+- **D5 — Contract (parent, technical).** The exact contract is ADR-0014 and `docs/api.md` («`/api/uploads/`»). Backend notes: upload ID = media ID via `FileInfoChanges.ID` in `PreUploadCreateCallback`; publication in `PreFinishResponseCallback` reusing `SavePhoto`'s publish path (signature, per-type limit, fsync, rename, dir sync, INSERT, promote derivatives) under the per-ID lock; `HEAD` wrapper answers confirmed media as complete and retries publication for complete-unpublished uploads; reservation computed from `tmp/tus/` (`Size` − bytes on disk) plus the derivative ledger, serialized by the ledger mutex; `NetworkTimeout` = `BODA_UPLOAD_IDLE_TIMEOUT`; shared capacity per `PATCH`; new `BODA_UPLOAD_RESUME_TTL` (24h) for reconcile expiry skipping active `PATCH` IDs; CORS, download and concat disabled; reconcile must not treat `tmp/tus/` as an orphan. Frontend notes: `tus-js-client` with `endpoint: '/api/uploads/'`, `uploadUrl: '/api/uploads/{id}'` (resume by HEAD, create on 404), metadata `id` + `filetype`, `chunkSize` 16 MiB, no fingerprint storage, tus-level retries off (the existing queue retries), stall watchdog kept, `409 already_confirmed` = success.
 
 ## Specs
 - **S1** Remove Cloudflare and WAF from the project. L1: "Al final voy a quitar toda la parte de cloudflare y temas wafs he decidido que lo voy a gestionar yo directamente accediendo directamente a la maquina, obviamente poniendo las buenas practicas." Host hardening stays with the user, outside the repository.
@@ -17,7 +18,7 @@ Tests: `cd backend && gofmt -l . && go vet ./... && go test -race ./...`; `cd fr
 | ID | Spec | Route | Risk | Commit |
 |---|---|---|---|---|
 | T1 | S1 | inline: confirm `develop` has no Cloudflare; drop the `cloudflare-edge` plan; local branches `chore/cloudflare-tunnel`, `docs/cloudflare-plan` deleted only with user OK | none | n/a (nothing on `develop`) |
-| T2 | S2, S3 | inline: ADR-0014 (tus contract, amends ADR-0005/0008/0009), architecture 1.2/1.6, `AGENTS.md` dependency rule, `docs/api.md` contract | item 3 (upload contract) | pending |
+| T2 | S2, S3 | inline: ADR-0014 (tus contract, amends ADR-0005/0008/0009), architecture 1.2/1.6, `AGENTS.md` dependency rule, `docs/api.md` contract | item 3 (upload contract) | `2307f5e` |
 | T3 | S2 | worker, test-first: backend tus endpoint, publish on finish, reservation rebuilt from pending uploads, expiry cleanup, Go 1.25 | items 1, 5 | pending |
 | T4 | S2 | worker, test-first: frontend originals through `tus-js-client` with resume | item 3 | pending |
 | T5 | S2 | inline: remove `PUT /api/media/{id}`, runbook, smoke resume check | item 3 | pending |
