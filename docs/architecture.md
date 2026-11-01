@@ -51,7 +51,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
   - Logs estructurados con `slog`.
   - El frontend y las migraciones pueden ir embebidos en el binario si hiciera falta.
 - **Coste o complejidad:** hay que escribir a mano el poco pegamento que daría un framework: middleware de autenticación, respuestas JSON y la cola interna de tareas. Son pocas piezas y se conocen bien.
-- **Dependencias externas permitidas:** solo dos, el driver de SQLite y `golang.org/x/crypto` para calcular el hash de la contraseña del administrador.
+- **Dependencias externas permitidas:** solo tres: el driver de SQLite, `golang.org/x/crypto` para calcular el hash de la contraseña del administrador y `github.com/tus/tusd/v2` para las subidas reanudables de originales (ADR-0014).
 - **Descartado: Node.js** (con Express o Fastify). No es incapaz, pero multer y busboy vuelcan a temporales por defecto, cuesta más memoria y hace falta Node en producción. **Python** (FastAPI) también queda fuera: el streaming de subidas y la concurrencia de un proceso ASGI exigen más cuidado para el mismo resultado. **Frameworks de Go** como Gin, Echo o Fiber: no aportan nada que la librería estándar no cubra, y Fiber ni siquiera usa `net/http`.
 
 ### 1.3 Persistencia: SQLite con el driver `modernc.org/sqlite`
@@ -91,6 +91,8 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 - Kubernetes.
 - Límites de peticiones en el proxy: exigirían compilar Caddy con un plugin. El único límite que hace falta, en el login del administrador, lo aplica la aplicación.
 - WebSockets.
+- **Caché intermedia** (en memoria, Redis o en el proxy): lo que se repite ya está cacheado. `/assets/*` es `immutable`, `/m/*` se guarda en el navegador (ADR-0011), Caddy sirve los medios desde el disco local con la caché de páginas del sistema operativo (12 GB de RAM) y la galería consulta unos pocos miles de filas en SQLite. Una caché de la API obligaría a invalidar con cada «me gusta», ocultación o fijado, sin una ganancia que se note con unos 110 invitados. Si una prueba de carga (`loadtest/`) mostrara un cuello de botella, se revisa.
+- **CDN o proxy externo** (Cloudflare u otro): el tráfico llega directamente a Caddy y la protección del servidor se gestiona en la propia máquina. Un intermediario impondría límites de tamaño por petición y condiciones para servir vídeo.
 
 ---
 

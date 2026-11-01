@@ -9,7 +9,7 @@ This is a wedding photo/video upload app. Before making architectural or operati
 - Backend: Go in `backend/`, using the standard library; SQLite is planned for persistence.
 - Frontend: Svelte 5, TypeScript, and Vite in `frontend/`.
 - Caddy serves the frontend and proxies API requests. Docker uses multi-stage targets `app` and `web`.
-- Keep Go dependencies to the standard library except the SQLite driver and `golang.org/x/crypto`.
+- Keep Go dependencies to the standard library except the SQLite driver, `golang.org/x/crypto`, and `github.com/tus/tusd/v2` for resumable uploads (ADR-0014).
 - Avoid product-scope creep. Generated artifacts are in English. Documentation under `docs/` is Spanish; keep it Spanish.
 
 ## Commands

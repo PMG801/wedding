@@ -4,7 +4,7 @@ Los ADR documentan decisiones arquitectónicas duraderas. Se nombran `NNNN-slug.
 
 ## Estados
 
-Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido** o **Retirado**. Un ADR sustituido debe enlazar el ADR que lo reemplaza; uno retirado explica por qué deja de aplicar. Los ADR existentes 0001–0010 se consideran aceptados; ADR-0006 está sustituido en parte por ADR-0011.
+Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido** o **Retirado**. Un ADR sustituido debe enlazar el ADR que lo reemplaza; uno retirado explica por qué deja de aplicar. Los ADR existentes 0001–0010 se consideran aceptados; ADR-0006 está sustituido en parte por ADR-0011, y ADR-0005 por ADR-0014.
 
 ## Índice
 
@@ -21,3 +21,4 @@ Indica el estado al comienzo del ADR: **Propuesto**, **Aceptado**, **Sustituido*
 - [ADR-0011 · Los medios publicados exigen la sesión de invitado](0011-medios-tras-sesion-invitado.md)
 - [ADR-0012 · «Me gusta» con identidad anónima de invitado y ranking de 50](0012-me-gusta-invitado-anonimo.md)
 - [ADR-0013 · Publicaciones fijadas: texto del administrador, hasta cinco, con imagen opcional de la galería](0013-publicaciones-fijadas.md)
+- [ADR-0014 · Subidas reanudables de originales con tus (librería tusd)](0014-subidas-reanudables-tus.md)

@@ -1,5 +1,7 @@
 # ADR-0005 · Subida con una petición por archivo, reintento idempotente y criterio para pasar a TUS
 
+- **Estado:** Sustituido en parte por [ADR-0014](0014-subidas-reanudables-tus.md): el original se sube con tus. Siguen vigentes el identificador generado en el cliente, la subida previa de las versiones pequeñas y la idempotencia.
+
 - **Contexto:**
   - Se espera concurrencia baja, con la mayoría de subidas por Wi-Fi o al día siguiente.
   - Aun así habrá cortes de red y respuestas que no llegan.

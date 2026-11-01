@@ -1,0 +1,29 @@
+# ADR-0014 · Subidas reanudables de originales con tus (librería tusd)
+
+- **Estado:** Aceptado. Sustituye en parte a [ADR-0005](0005-subida-streaming-idempotente.md) (el transporte del original) y amplía [ADR-0008](0008-limites-operativos-control-disco.md) (reserva de disco) y [ADR-0009](0009-limpieza-conciliacion-huerfanos.md) (limpieza).
+- **Contexto:**
+  - Con `PUT /api/media/{id}`, un corte de red obliga a repetir el archivo entero. Con un vídeo de cientos de MB por 4G, cada reintento vuelve a empezar desde cero.
+  - El despliegue ya no pasa por Cloudflare: Caddy recibe el tráfico directamente, así que no hay un límite de tamaño por petición impuesto por un intermediario. El motivo para cambiar es poder **reanudar**, no esquivar un límite.
+  - El operador quiere segmentar las subidas grandes y tener herramientas para recuperarlas tras un fallo.
+- **Decisión:**
+  - Todos los originales (fotos y vídeos) se suben con el protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) en `/api/uploads/`. Los derivados del cliente siguen con `POST /api/media/{id}/derived`.
+  - El servidor usa la librería `github.com/tus/tusd/v2` (`pkg/handler`, `pkg/filestore` y `pkg/memorylocker`) dentro del mismo binario. Extensiones activas: `creation` y `termination`. Desactivadas: descarga por `GET`, concatenación, `Upload-Defer-Length` y CORS (todo es del mismo origen).
+  - **El identificador de la subida es el del medio.** El cliente manda su UUIDv4 en el metadato `id` de `Upload-Metadata`; la subida queda en `/api/uploads/{id}`. Así el cliente conoce la URL sin haberla guardado y reanuda con `HEAD` aunque haya perdido su estado local.
+  - Las subidas a medias viven en `tmp/tus/` (`{id}` con los bytes y `{id}.info` con los metadatos), en el mismo sistema de archivos que `originals/`.
+  - **Publicación al terminar:** cuando llega el último byte, la aplicación comprueba la firma y el límite según el tipo, fuerza la escritura a disco, renombra a `originals/` con el nombre cronológico de siempre, confirma en SQLite y borra el `.info`. Si la firma no es válida o supera el límite de su tipo, responde con el error y borra la subida.
+  - **Idempotencia:** un `HEAD` sobre un medio ya confirmado responde como una subida completa (`Upload-Offset` igual a `Upload-Length`), y crear una subida para un medio confirmado responde `409 already_confirmed`. El cliente trata ambos casos como éxito.
+  - Se mantienen la sesión de invitado, el interruptor de subidas, la capacidad compartida (`BODA_MAX_CONCURRENT_UPLOADS`, aplicada a cada `PATCH`) y el plazo de inactividad (`BODA_UPLOAD_IDLE_TIMEOUT`). Lo recibido antes de un corte se conserva.
+  - **Reserva de disco:** se calcula a partir de `tmp/tus/` (tamaño declarado menos bytes ya escritos de cada subida pendiente) más la reserva en memoria de los derivados. Sobrevive a un reinicio sin estado aparte. Crear una subida solo se acepta si `libre − reservado − declarado ≥ BODA_DISK_MIN_FREE_BYTES`.
+  - **Caducidad:** la conciliación borra las subidas a medias sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 h por defecto), salvo las que tienen un `PATCH` en curso.
+  - En el cliente, `tus-js-client` envía el archivo en trozos de 16 MiB y la cola existente decide los reintentos; cada reintento reanuda desde el último byte confirmado.
+  - Excepción de dependencias: `github.com/tus/tusd/v2` (y su dependencia `golang.org/x/exp`) se suma al driver de SQLite y a `golang.org/x/crypto`. tusd v2 exige Go 1.25.
+- **Motivo determinante:** un corte ya no cuesta el archivo entero, y tusd resuelve el protocolo, el bloqueo por subida y el almacenamiento de las partes con código probado, en lugar de reinventarlo (lo que ADR-0005 ya descartaba).
+- **Descartado:**
+  - Implementar tus a mano con la librería estándar: menos dependencias, pero más código propio en una parte crítica.
+  - tus solo para vídeos o archivos grandes: dos caminos de subida que mantener.
+  - Una caché intermedia (en memoria o Redis): ver `docs/architecture.md` (1.6).
+- **Consecuencias:**
+  - `PUT /api/media/{id}` se retira cuando el cliente use tus.
+  - Un archivo con firma no válida solo se rechaza al terminar de subirlo; el cliente ya filtra por tipo antes de empezar.
+  - `tmp/tus/` puede contener subidas a medias durante `BODA_UPLOAD_RESUME_TTL`; ocupan disco y cuentan en la reserva.
+  - Una dependencia externa más que actualizar.
