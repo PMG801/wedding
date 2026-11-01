@@ -67,7 +67,7 @@ Exige la sesión de administrador. Cuerpo JSON con el campo obligatorio `uploads
 {"uploadsEnabled":false}
 ```
 
-El cambio se guarda en SQLite (clave `uploads_enabled`, ver `docs/data-model.md`) antes de aplicarse en memoria, sobrevive a reinicios y surte efecto en la siguiente petición de subida. Con `false`, `PUT /api/media/{id}` y `POST /api/media/{id}/derived` responden `503 uploads_paused`.
+El cambio se guarda en SQLite (clave `uploads_enabled`, ver `docs/data-model.md`) antes de aplicarse en memoria, sobrevive a reinicios y surte efecto en la siguiente petición de subida. Con `false`, `POST /api/uploads/`, `PATCH /api/uploads/{id}` y `POST /api/media/{id}/derived` responden `503 uploads_paused`.
 
 | Estado | Significado y respuesta |
 | --- | --- |
@@ -131,32 +131,6 @@ Protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) con las extensi
 **`DELETE /api/uploads/{id}` — cancelar.** `204` y borra la subida a medias; `404 {"error":"upload_not_found"}` si no existe. `HEAD` y `DELETE` funcionan también con las subidas en pausa. Un `PATCH` sobre un identificador no canónico responde `404 {"error":"upload_not_found"}`.
 
 Las subidas a medias sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 h por defecto) las borra la conciliación.
-
-### `PUT /api/media/{id}` — original de foto o vídeo en streaming
-
-> Se retira cuando el cliente sube los originales con tus (ADR-0014).
-
-La ruta exige una cookie de sesión de invitado válida (`guest_session`). Recibe los bytes originales directamente en el cuerpo; no acepta carga multipart. `{id}` debe ser un UUIDv4 canónico en minúsculas y se exige `Content-Length` positivo. El límite depende del tipo detectado por firma: `BODA_MAX_PHOTO_BYTES` (50 MB por defecto) para JPEG, PNG, HEIC y HEIF, y `BODA_MAX_VIDEO_BYTES` (1,5 GB por defecto) para vídeo MP4/M4V y QuickTime MOV (marca principal `isom`, `iso2`, `mp41`, `mp42`, `avc1`, `M4V ` o `qt  `). No se transcodifica nada en el servidor. Los derivados (miniatura y detalle, también la portada de un vídeo) tienen su propio límite, `BODA_MAX_DERIVATIVE_BYTES` (8 MiB por defecto), y no usan el de foto.
-
-Caddy reenvía el cuerpo sin buffering. El plazo de lectura es de inactividad (90 segundos por defecto), no un plazo total de subida. La aplicación escribe en `tmp/{id}.part`, valida firma y tamaño, sincroniza el archivo, lo renombra y confirma en SQLite. Un identificador ya confirmado devuelve el mismo éxito idempotente sin volver a escribir. En ese caso el servidor lee y descarta el cuerpo declarado antes de responder `200`, de modo que el cliente termina de enviarlo y la conexión persistente sigue utilizable; un reintento grande no provoca un corte de conexión ni un `502` a través de Caddy.
-
-| Estado | Significado y respuesta |
-| --- | --- |
-| `201 Created` | Foto nueva confirmada; cuerpo vacío. |
-| `200 OK` | Reintento de una foto ya confirmada; cuerpo vacío y sin reescritura. El cuerpo declarado se lee y se descarta antes de responder. |
-| `400 Bad Request` | UUID no canónico (`{"error":"invalid_media_id"}`), cuerpo vacío (`{"error":"empty_photo"}`) o tamaño real distinto del declarado (`{"error":"photo_body_size_mismatch"}`). |
-| `401 Unauthorized` | Falta una sesión de invitado válida; cuerpo de texto `guest session required\n`. |
-| `405 Method Not Allowed` | Método distinto de `PUT`; el cuerpo es el texto estándar de `net/http`. |
-| `411 Length Required` | Falta un tamaño declarado (`{"error":"content_length_required"}`). |
-| `413 Request Entity Too Large` | El tamaño declarado supera el máximo de foto (`{"error":"photo_too_large"}`), el de vídeo (`{"error":"video_too_large"}`) o, antes de leer el cuerpo y cuando el límite de vídeo es mayor que el de foto, el mayor de los dos (`{"error":"media_too_large"}`). |
-| `408 Request Timeout` | El cuerpo no recibe datos durante el plazo de inactividad configurado (`{"error":"upload_idle_timeout"}`). |
-| `415 Unsupported Media Type` | La firma no es JPEG, PNG, HEIC, HEIF, MP4 ni MOV (`{"error":"unsupported_photo_format"}`). |
-| `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
-| `500 Internal Server Error` | Error interno al persistir la foto (`{"error":"upload_failed"}`). |
-| `503 Service Unavailable` | Capacidad de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`. Si el servicio de subidas no está disponible, responde `{"error":"uploads_unavailable"}`. |
-| `503 Service Unavailable` | Subidas en pausa con el interruptor de administración (`uploads_enabled` en `false`): respuesta inmediata, sin leer el cuerpo, sin `Retry-After` y `{"error":"uploads_paused"}`. Las lecturas (galería, sesión, medios) siguen funcionando. |
-
-Los errores JSON usan `Content-Type: application/json; charset=utf-8` y el formato `{"error":"<código>"}` seguido de salto de línea. La capacidad máxima simultánea se configura con `BODA_MAX_CONCURRENT_UPLOADS` (30 por defecto); una petición que encuentre todos los espacios ocupados se rechaza sin esperar ni leer su cuerpo.
 
 ### `GET /api/media?cursor=<opaco>&limit=50&order=newest&type=photo` — galería
 
@@ -407,7 +381,7 @@ Las rutas `/api/admin/*` exigen la sesión de administrador. El interruptor manu
 - La cookie de invitado lleva un identificador anónimo `guest_id` firmado, generado al entrar por el QR (ADR-0012). Una cookie de formato anterior, sin `guest_id`, ya no es válida: responde `401` y el invitado vuelve a escanear el QR. Volver a entrar por el QR con una cookie válida conserva su `guest_id`.
 - Las rutas administrativas exigen la sesión independiente del administrador.
 - Los límites de tamaño, concurrencia, inactividad y espacio se aplican en el servidor; el cliente puede replicarlos solo para mostrar mejores mensajes.
-- La ruta de originales admite JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma.
+- Los originales se suben con tus en `/api/uploads/` (ADR-0014) y admiten JPEG, HEIC, HEIF y PNG, además de vídeo MP4 y MOV, por firma. Los derivados usan `POST /api/media/{id}/derived`.
 - Las publicaciones fijadas tienen límites propios: como máximo 5 entradas, título de 1 a 120 caracteres, cuerpo de hasta 2000 y cuerpo JSON de hasta 8 KiB (ADR-0013).
 
 ## Información pendiente para completar el contrato

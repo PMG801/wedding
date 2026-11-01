@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
+	"net/http"
 	"testing"
-	"time"
 )
 
 const (
@@ -20,39 +19,6 @@ func pngOfSize(size int) []byte {
 	return body
 }
 
-// splitReader serves the first part of its data, then blocks until released
-// so a test can observe an upload that is still in progress.
-type splitReader struct {
-	data       []byte
-	split      int
-	served     int
-	blocked    chan struct{}
-	release    chan struct{}
-	blockedSet bool
-}
-
-func newSplitReader(data []byte, split int) *splitReader {
-	return &splitReader{data: data, split: split, blocked: make(chan struct{}), release: make(chan struct{})}
-}
-
-func (r *splitReader) Read(p []byte) (int, error) {
-	if r.served >= len(r.data) {
-		return 0, io.EOF
-	}
-	if r.served == r.split && !r.blockedSet {
-		r.blockedSet = true
-		close(r.blocked)
-		<-r.release
-	}
-	limit := len(r.data)
-	if r.served < r.split {
-		limit = r.split
-	}
-	n := copy(p, r.data[r.served:limit])
-	r.served += n
-	return n, nil
-}
-
 func newReservationStore(t *testing.T, free uint64) *Store {
 	t.Helper()
 	store, _ := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 4, MinFreeBytes: 100})
@@ -60,71 +26,74 @@ func newReservationStore(t *testing.T, free uint64) *Store {
 	return store
 }
 
-func startHeldPhoto(t *testing.T, store *Store, id string, body []byte, split int) (*splitReader, chan error) {
-	t.Helper()
-	reader := newSplitReader(body, split)
-	done := make(chan error, 1)
-	go func() {
-		_, err := store.SavePhoto(context.Background(), id, int64(len(body)), reader)
-		done <- err
-	}()
-	select {
-	case <-reader.blocked:
-	case <-time.After(2 * time.Second):
-		t.Fatal("held upload did not reach its blocking point")
-	}
-	return reader, done
-}
-
-func TestConcurrentUploadsCannotOvershootFreeDiskThreshold(t *testing.T) {
+// A declared upload reserves its whole size from creation until its bytes reach
+// the disk, so a second creation that would overshoot the free-space threshold is refused.
+func TestPendingUploadsCannotOvershootFreeDiskThreshold(t *testing.T) {
 	// 250 free, 100 minimum: room for exactly one 100-byte upload at a time.
 	store := newReservationStore(t, 250)
-	first, firstDone := startHeldPhoto(t, store, testID, pngOfSize(100), 8)
+	resumable := tusSession(t, store)
+	if created := tusCreateUpload(resumable, testID, 100); created.Code != http.StatusCreated {
+		t.Fatalf("first creation = %d %q; want 201", created.Code, created.Body.String())
+	}
 
-	if _, err := store.SavePhoto(context.Background(), secondID, 100, bytes.NewReader(pngOfSize(100))); !errors.Is(err, ErrInsufficientStorage) {
-		t.Fatalf("second concurrent photo error = %v; want ErrInsufficientStorage", err)
+	if created := tusCreateUpload(resumable, secondID, 100); created.Code != http.StatusInsufficientStorage {
+		t.Fatalf("second creation while the first is pending = %d; want 507", created.Code)
 	}
 	if _, err := store.SaveDerivative(context.Background(), thirdID, "t", 100, bytes.NewReader(make([]byte, 100))); !errors.Is(err, ErrInsufficientStorage) {
-		t.Fatalf("concurrent derivative error = %v; want ErrInsufficientStorage", err)
+		t.Fatalf("derivative while the upload is pending error = %v; want ErrInsufficientStorage", err)
 	}
 
-	close(first.release)
-	if err := <-firstDone; err != nil {
-		t.Fatalf("first photo = %v", err)
+	if patched := tusPatchUpload(resumable, testID, 0, pngOfSize(100)); patched.Code != http.StatusNoContent {
+		t.Fatalf("completing the first upload = %d %q; want 204", patched.Code, patched.Body.String())
 	}
 	if usage, err := store.DiskUsage(); err != nil || usage.ReservedBytes != 0 {
 		t.Fatalf("DiskUsage() after completion = %+v, %v; want no reservation", usage, err)
 	}
-	if _, err := store.SavePhoto(context.Background(), secondID, 100, bytes.NewReader(pngOfSize(100))); err != nil {
-		t.Fatalf("photo after the reservation was released = %v", err)
+	if created := tusCreateUpload(resumable, secondID, 100); created.Code != http.StatusCreated {
+		t.Fatalf("creation after the reservation was released = %d %q; want 201", created.Code, created.Body.String())
 	}
 }
 
 func TestDiskUsageReportsOnlyBytesNotYetWritten(t *testing.T) {
 	store := newReservationStore(t, 10_000)
+	resumable := tusSession(t, store)
+	if created := tusCreateUpload(resumable, testID, 200); created.Code != http.StatusCreated {
+		t.Fatalf("creation = %d; want 201", created.Code)
+	}
 	// The 64-byte signature and 76 more bytes are written; 60 remain.
-	held, done := startHeldPhoto(t, store, testID, pngOfSize(200), 140)
+	if patched := tusPatchUpload(resumable, testID, 0, pngOfSize(200)[:140]); patched.Code != http.StatusNoContent {
+		t.Fatalf("partial PATCH = %d %q; want 204", patched.Code, patched.Body.String())
+	}
 	usage, err := store.DiskUsage()
 	if err != nil || usage.FreeBytes != 10_000 || usage.MinFreeBytes != 100 || usage.ReservedBytes != 60 {
 		t.Fatalf("DiskUsage() during upload = %+v, %v; want free 10000, min 100, reserved 60", usage, err)
 	}
-	close(held.release)
-	if err := <-done; err != nil {
-		t.Fatalf("held photo = %v", err)
-	}
 }
 
-func TestFailedUploadReleasesItsReservation(t *testing.T) {
+// An abandoned upload keeps its reservation until its owner deletes it or
+// reconciliation expires it; deleting it returns the reserved bytes.
+func TestDeletedUploadReleasesItsReservation(t *testing.T) {
 	store := newReservationStore(t, 250)
-	// Declares 100 bytes but sends 50: the upload fails as a size mismatch.
-	if _, err := store.SavePhoto(context.Background(), testID, 100, bytes.NewReader(pngOfSize(50))); err == nil {
-		t.Fatal("short body was accepted")
+	resumable := tusSession(t, store)
+	if created := tusCreateUpload(resumable, testID, 100); created.Code != http.StatusCreated {
+		t.Fatalf("creation = %d; want 201", created.Code)
+	}
+	// Declares 100 bytes and sends 50: the rest stays reserved while the upload is pending.
+	if patched := tusPatchUpload(resumable, testID, 0, pngOfSize(100)[:50]); patched.Code != http.StatusNoContent {
+		t.Fatalf("partial PATCH = %d; want 204", patched.Code)
+	}
+	if usage, err := store.DiskUsage(); err != nil || usage.ReservedBytes != 50 {
+		t.Fatalf("DiskUsage() with a pending upload = %+v, %v; want 50 reserved", usage, err)
+	}
+
+	if deleted := tusDeleteUpload(resumable, testID); deleted.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d; want 204", deleted.Code)
 	}
 	if usage, err := store.DiskUsage(); err != nil || usage.ReservedBytes != 0 {
-		t.Fatalf("DiskUsage() after failure = %+v, %v; want no reservation", usage, err)
+		t.Fatalf("DiskUsage() after DELETE = %+v, %v; want no reservation", usage, err)
 	}
-	if _, err := store.SavePhoto(context.Background(), secondID, 100, bytes.NewReader(pngOfSize(100))); err != nil {
-		t.Fatalf("photo after a failed upload = %v", err)
+	if created := tusCreateUpload(resumable, secondID, 100); created.Code != http.StatusCreated {
+		t.Fatalf("creation after DELETE = %d %q; want 201", created.Code, created.Body.String())
 	}
 	if entries, err := readDirWithoutTus(store.paths.Tmp); err != nil || len(entries) != 0 {
 		t.Fatalf("tmp entries = %v, %v; want none", entries, err)

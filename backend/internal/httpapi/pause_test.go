@@ -35,26 +35,15 @@ func TestPausedUploadsRejectWithoutReadingBodyOrWritingFiles(t *testing.T) {
 	guest := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	jpeg := []byte{0xff, 0xd8, 0xff, 1, 2, 3}
 
-	put := photoRequest(testMediaID, jpeg, guest)
-	putBody := &countingBody{reader: bytes.NewReader(jpeg)}
-	put.Body = putBody
-	response := fx.do(put)
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"uploads_paused\"}\n" {
-		t.Fatalf("paused PUT = %d %q; want 503 uploads_paused", response.Code, response.Body.String())
-	}
-	if response.Header().Get("Retry-After") != "" {
-		t.Errorf("paused PUT sent Retry-After %q; want none so clients do not retry-storm", response.Header().Get("Retry-After"))
-	}
-
 	derived := derivativeRequest(testMediaID, "t", jpeg, guest)
 	derivedBody := &countingBody{reader: bytes.NewReader(jpeg)}
 	derived.Body = derivedBody
-	response = fx.do(derived)
+	response := fx.do(derived)
 	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"uploads_paused\"}\n" {
 		t.Fatalf("paused derivative POST = %d %q; want 503 uploads_paused", response.Code, response.Body.String())
 	}
-	if putBody.reads != 0 || derivedBody.reads != 0 {
-		t.Fatalf("paused uploads read the body (%d, %d times); want none", putBody.reads, derivedBody.reads)
+	if derivedBody.reads != 0 {
+		t.Fatalf("paused derivative read the body %d times; want none", derivedBody.reads)
 	}
 	for _, directory := range []string{paths.Tmp, paths.Originals, paths.Derived} {
 		entries, err := readDirWithoutTus(t, directory)
@@ -64,15 +53,18 @@ func TestPausedUploadsRejectWithoutReadingBodyOrWritingFiles(t *testing.T) {
 	}
 }
 
+// A paused switch answers before the shared capacity is checked, even while a
+// derivative holds the only slot.
 func TestPausedUploadIsRefusedBeforeCapacityCheck(t *testing.T) {
-	photos := &blockingPhotoUploader{started: make(chan struct{}), release: make(chan struct{})}
+	photos := &blockingPhotoDerivativeUploader{started: make(chan struct{}), release: make(chan struct{})}
 	fx := newAdminFixture(t, photos, nil)
 	guest := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	jpeg := []byte{0xff, 0xd8, 0xff, 1}
 
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		fx.do(photoRequest("123e4567-e89b-42d3-a456-426614174030", []byte("raw"), guest))
+		fx.do(derivativeRequest("123e4567-e89b-42d3-a456-426614174030", "t", jpeg, guest))
 	}()
 	select {
 	case <-photos.started:
@@ -88,15 +80,19 @@ func TestPausedUploadIsRefusedBeforeCapacityCheck(t *testing.T) {
 	if err := fx.settings.SetUploadsEnabled(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	response := fx.do(photoRequest("123e4567-e89b-42d3-a456-426614174031", []byte("raw"), guest))
+	response := fx.do(derivativeRequest("123e4567-e89b-42d3-a456-426614174031", "t", jpeg, guest))
 	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"uploads_paused\"}\n" {
-		t.Fatalf("paused PUT while saturated = %d %q; want uploads_paused, not capacity", response.Code, response.Body.String())
+		t.Fatalf("paused derivative while saturated = %d %q; want uploads_paused, not capacity", response.Code, response.Body.String())
 	}
 }
 
 func TestResumedUploadsAcceptPhotosAgain(t *testing.T) {
 	store, paths := newHTTPPhotoStoreWithPaths(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2})
-	fx := newAdminFixture(t, store, nil)
+	resumable, err := store.Resumable(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := newAdminFixture(t, store, nil, WithResumable(resumable))
 	ctx := context.Background()
 	guest := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	body := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
@@ -104,15 +100,13 @@ func TestResumedUploadsAcceptPhotosAgain(t *testing.T) {
 	if err := fx.settings.SetUploadsEnabled(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	if response := fx.do(photoRequest(testMediaID, body, guest)); response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("paused PUT = %d; want 503", response.Code)
+	if response := fx.do(tusCreate(idMetadata(testMediaID), int64(len(body)), guest)); response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("paused tus creation = %d; want 503", response.Code)
 	}
 	if err := fx.settings.SetUploadsEnabled(ctx, true); err != nil {
 		t.Fatal(err)
 	}
-	if response := fx.do(photoRequest(testMediaID, body, guest)); response.Code != http.StatusCreated {
-		t.Fatalf("resumed PUT = %d %q; want 201", response.Code, response.Body.String())
-	}
+	seedOriginalViaTus(t, fx.handler, testMediaID, body, guest)
 	entries, err := os.ReadDir(paths.Originals)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("originals after resumed upload = %v, %v; want one file", entries, err)

@@ -1,7 +1,6 @@
 package upload
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -42,10 +41,7 @@ func TestReconcileRemovesAbandonedPartialsButProtectsActiveUploads(t *testing.T)
 
 func TestReconcileQuarantinesUnindexedOriginalsWithoutDeleting(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
-	indexed, err := store.SavePhoto(context.Background(), visibleID, 4, bytes.NewReader([]byte(jpegHeader+"1")))
-	if err != nil {
-		t.Fatal(err)
-	}
+	indexed := seedOriginal(t, store, visibleID, []byte(jpegHeader+"1"))
 	orphanName := "20260926T183012.000000000Z_" + orphanID + ".jpg"
 	writeFile(t, filepath.Join(paths.Originals, orphanName), "orphan bytes")
 	strayName := "notes.txt"
@@ -96,9 +92,7 @@ func TestReconcileNeverOverwritesQuarantinedFiles(t *testing.T) {
 func TestReconcilePromotesStagedDerivativesOnlyForVisibleOriginals(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
 	for _, id := range []string{visibleID, hiddenID} {
-		if _, err := store.SavePhoto(context.Background(), id, 4, bytes.NewReader([]byte(jpegHeader+"1"))); err != nil {
-			t.Fatal(err)
-		}
+		seedOriginal(t, store, id, []byte(jpegHeader+"1"))
 	}
 	if _, err := store.db.Exec("UPDATE media SET visibility = 'hidden' WHERE id = ?", hiddenID); err != nil {
 		t.Fatal(err)

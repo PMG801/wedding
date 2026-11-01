@@ -101,7 +101,6 @@ func newAppHandler(ctx context.Context, database *sql.DB, cfg config.Config, pho
 		return nil, fmt.Errorf("initialize resumable uploads: %w", err)
 	}
 	return httpapi.NewHandler(cfg.EventToken, []byte(cfg.SessionKey), photos, cfg.MaxConcurrentUploads, cfg.UploadIdleTimeout, cfg.MaxPhotoBytes, gallery,
-		httpapi.WithMaxVideoBytes(cfg.MaxVideoBytes),
 		httpapi.WithMaxDerivativeBytes(cfg.MaxDerivativeBytes),
 		httpapi.WithAdmin(cfg.AdminPasswordHash, uploadSwitch, photos),
 		httpapi.WithModeration(photos),

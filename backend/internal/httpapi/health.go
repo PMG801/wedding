@@ -12,7 +12,6 @@ import (
 type Option func(*handlerOptions)
 
 type handlerOptions struct {
-	maxVideoBytes      int64
 	maxDerivativeBytes int64
 	admin              *adminOptions
 	throttle           *auth.LoginThrottle
@@ -28,11 +27,6 @@ func WithResumable(resumable *upload.Resumable) Option {
 	return func(o *handlerOptions) { o.resumable = resumable }
 }
 
-// WithMaxVideoBytes sets the largest accepted video; photos keep maxPhotoBytes.
-func WithMaxVideoBytes(limit int64) Option {
-	return func(o *handlerOptions) { o.maxVideoBytes = limit }
-}
-
 // WithMaxDerivativeBytes sets the largest accepted derivative; when unset,
 // derivatives keep the photo limit.
 func WithMaxDerivativeBytes(limit int64) Option {
@@ -40,7 +34,7 @@ func WithMaxDerivativeBytes(limit int64) Option {
 }
 
 // NewHandler builds the HTTP handler for public and guest-session routes.
-func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxConcurrent int, idleTimeout time.Duration, maxPhotoBytes int64, gallery mediaLister, opts ...Option) http.Handler {
+func NewHandler(eventToken string, sessionKey []byte, photos derivativePhotoUploader, maxConcurrent int, idleTimeout time.Duration, maxPhotoBytes int64, gallery mediaLister, opts ...Option) http.Handler {
 	var options handlerOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -59,7 +53,6 @@ func NewHandler(eventToken string, sessionKey []byte, photos photoUploader, maxC
 	if options.resumable != nil {
 		registerResumableRoutes(mux, sessionKey, switches, capacity, options.resumable)
 	}
-	mux.Handle("PUT /api/media/{id}", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newPhotoUploadHandler(photos, capacity, maxPhotoBytes, options.maxVideoBytes, idleTimeout))))
 	mux.Handle("POST /api/media/{id}/derived", auth.RequireGuestSession(sessionKey, uploadsSwitchGate(switches, newDerivativeUploadHandler(photos, capacity, maxDerivative, idleTimeout))))
 	registerAdminRoutes(mux, sessionKey, options)
 	registerLikeRoutes(mux, sessionKey, options.likes)

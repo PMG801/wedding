@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -130,169 +129,46 @@ func TestDerivativeUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T)
 	}
 }
 
+// A tus PATCH that is still receiving bytes holds the only shared slot, so a
+// derivative is refused promptly until the PATCH releases it.
 func TestDerivativeUploadSharesCapacityWithOriginalUploads(t *testing.T) {
-	photos := &blockingPhotoDerivativeUploader{started: make(chan struct{}), release: make(chan struct{})}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024, nil)
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
+	f := newResumableFixture(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 1}, 1)
+	f.createUpload(tusIDOne, 100)
+	reader, writer := io.Pipe()
 	firstDone := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, photoRequest(testMediaID, []byte("raw"), cookie))
-		firstDone <- response
-	}()
-	select {
-	case <-photos.started:
-	case <-time.After(time.Second):
-		close(photos.release)
-		t.Fatal("original upload did not acquire the shared capacity slot")
+	go func() { firstDone <- f.serve(tusPatch(tusIDOne, 0, reader, 100, f.cookie)) }()
+	if _, err := writer.Write(jpegBody(10)); err != nil { // the PATCH reads, so it holds the slot
+		t.Fatalf("write first chunk: %v", err)
 	}
 
-	second := httptest.NewRecorder()
-	handler.ServeHTTP(second, derivativeRequest("123e4567-e89b-42d3-a456-426614174001", "t", []byte{0xff, 0xd8, 0xff}, cookie))
-	if second.Code != http.StatusServiceUnavailable || second.Header().Get("Retry-After") != "1" || second.Body.String() != "{\"error\":\"upload_capacity_reached\"}\n" {
-		t.Errorf("derivative request during original upload = %d Retry-After=%q %q; want prompt 503", second.Code, second.Header().Get("Retry-After"), second.Body.String())
+	second := f.serve(derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff}, f.cookie))
+	if second.Code != http.StatusServiceUnavailable || second.Header().Get("Retry-After") != "1" || second.Body.String() != tusCapacityReject {
+		t.Errorf("derivative during original upload = %d Retry-After=%q %q; want prompt 503", second.Code, second.Header().Get("Retry-After"), second.Body.String())
 	}
-	close(photos.release)
+
+	if _, err := writer.Write(jpegBody(90)); err != nil {
+		t.Fatalf("write remaining bytes: %v", err)
+	}
+	_ = writer.Close() // the body ends at its declared length, as a client's request does
 	select {
 	case response := <-firstDone:
-		if response.Code != http.StatusCreated {
-			t.Errorf("original upload after releasing slot = %d; want 201", response.Code)
+		if response.Code != http.StatusNoContent {
+			t.Errorf("original upload after completing = %d %q; want 204", response.Code, response.Body.String())
 		}
-	case <-time.After(time.Second):
-		t.Fatal("original upload did not finish after capacity was released")
+	case <-time.After(2 * time.Second):
+		t.Fatal("original upload did not finish")
 	}
 }
 
-func TestPhotoUploadRequiresGuestSessionAndStoresRawBodyIdempotently(t *testing.T) {
-	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, time.Second, 1024, nil)
-	const id = "123e4567-e89b-42d3-a456-426614174000"
-	body := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
-
-	unauthorized := httptest.NewRecorder()
-	handler.ServeHTTP(unauthorized, photoRequest(id, body, nil))
-	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated PUT status = %d; want 401", unauthorized.Code)
-	}
-
-	first := httptest.NewRecorder()
-	handler.ServeHTTP(first, photoRequest(id, body, auth.NewGuestCookie([]byte(testSessionKey), time.Now())))
-	if first.Code != http.StatusCreated || first.Body.Len() != 0 {
-		t.Fatalf("first PUT response = %d %q; want empty 201", first.Code, first.Body.String())
-	}
-
-	retry := httptest.NewRecorder()
-	handler.ServeHTTP(retry, photoRequest(id, body, auth.NewGuestCookie([]byte(testSessionKey), time.Now())))
-	if retry.Code != http.StatusOK || retry.Body.Len() != 0 {
-		t.Fatalf("confirmed retry response = %d %q; want empty 200", retry.Code, retry.Body.String())
-	}
-}
-
-func TestPhotoUploadValidatesIDLengthAndPhotoSignature(t *testing.T) {
-	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 9, MaxConcurrent: 1})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 9, nil)
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	for _, test := range []struct {
-		name           string
-		id             string
-		body           []byte
-		wantStatus     int
-		wantError      string
-		declaredLength int64
-	}{
-		{"noncanonical UUID", "123E4567-e89b-42d3-a456-426614174000", []byte("x"), http.StatusBadRequest, "invalid_media_id", 0},
-		{"missing length", "123e4567-e89b-42d3-a456-426614174001", nil, http.StatusLengthRequired, "content_length_required", 0},
-		{"too large", "123e4567-e89b-42d3-a456-426614174002", bytes.Repeat([]byte("x"), 10), http.StatusRequestEntityTooLarge, "photo_too_large", 0},
-		{"unsupported signature", "123e4567-e89b-42d3-a456-426614174003", []byte("not-photo"), http.StatusUnsupportedMediaType, "unsupported_photo_format", 0},
-		{"truncated body", "123e4567-e89b-42d3-a456-426614174004", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, http.StatusBadRequest, "photo_body_size_mismatch", 9},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			request := photoRequest(test.id, test.body, cookie)
-			if test.name == "missing length" {
-				request.ContentLength = -1
-			} else if test.declaredLength > 0 {
-				request.ContentLength = test.declaredLength
-			}
-			handler.ServeHTTP(response, request)
-			if response.Code != test.wantStatus || response.Body.String() != "{\"error\":\""+test.wantError+"\"}\n" {
-				t.Fatalf("PUT response = %d %q; want %d error %q", response.Code, response.Body.String(), test.wantStatus, test.wantError)
-			}
-		})
-	}
-}
-
-func TestPhotoUploadMinimumFreeDiskReturnsInsufficientStorage(t *testing.T) {
-	paths, err := storage.Initialize(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := db.Open(context.Background(), filepath.Join(paths.Data, "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	store, err := upload.NewStore(database, paths, upload.Options{MaxBytes: 1024, MaxConcurrent: 1, MinFreeBytes: ^uint64(0)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, nil)
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, photoRequest("123e4567-e89b-42d3-a456-426614174000", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, cookie))
-	if response.Code != http.StatusInsufficientStorage || response.Body.String() != "{\"error\":\"insufficient_storage\"}\n" {
-		t.Fatalf("PUT response = %d %q; want 507 insufficient_storage", response.Code, response.Body.String())
-	}
-	entries, err := os.ReadDir(paths.Originals)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("final files after rejected upload = %v, %v; want none", entries, err)
-	}
-}
-
-func TestPhotoUploadRejectsSaturatedCapacityPromptly(t *testing.T) {
-	photos := &blockingPhotoUploader{started: make(chan struct{}), release: make(chan struct{})}
-	handler := NewHandler(testEventToken, []byte(testSessionKey), photos, 1, time.Second, 1024, nil)
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	firstDone := make(chan struct{})
-	go func() {
-		defer close(firstDone)
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, photoRequest("123e4567-e89b-42d3-a456-426614174010", []byte("raw"), cookie))
-	}()
-	select {
-	case <-photos.started:
-	case <-time.After(time.Second):
-		close(photos.release)
-		t.Fatal("first upload did not enter the persistence service")
-	}
-
-	secondDone := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, photoRequest("123e4567-e89b-42d3-a456-426614174011", []byte("raw"), cookie))
-		secondDone <- response
-	}()
-	select {
-	case response := <-secondDone:
-		if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" || response.Body.String() != "{\"error\":\"upload_capacity_reached\"}\n" {
-			t.Errorf("saturated PUT response = %d Retry-After=%q; want 503 and 1", response.Code, response.Header().Get("Retry-After"))
-		}
-	case <-time.After(300 * time.Millisecond):
-		t.Error("saturated PUT blocked instead of promptly returning 503")
-	}
-	close(photos.release)
-	select {
-	case <-firstDone:
-	case <-time.After(time.Second):
-		t.Fatal("first upload did not finish after capacity was released")
-	}
-}
-
-func TestPhotoUploadIdleTimeoutOverHTTP(t *testing.T) {
+// A derivative body that stalls mid-upload is answered 408 once the idle timeout
+// passes, and a complete body on the same handler still succeeds.
+func TestDerivativeUploadIdleTimeoutOverHTTP(t *testing.T) {
 	const idleTimeout = 150 * time.Millisecond
-	handler := NewHandler(testEventToken, []byte(testSessionKey), drainingPhotoUploader{}, 1, idleTimeout, 1024, nil)
+	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2})
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, idleTimeout, 1024, nil)
 	server := httptest.NewServer(handler)
 	defer server.Close()
+	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 
 	conn, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
 	if err != nil {
@@ -302,20 +178,20 @@ func TestPhotoUploadIdleTimeoutOverHTTP(t *testing.T) {
 	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatalf("set client deadline: %v", err)
 	}
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	_, err = io.WriteString(conn, "PUT /api/media/123e4567-e89b-42d3-a456-426614174020 HTTP/1.1\r\n"+
+	_, err = io.WriteString(conn, "POST /api/media/"+testMediaID+"/derived?variant=t HTTP/1.1\r\n"+
 		"Host: "+server.Listener.Addr().String()+"\r\n"+
 		"Cookie: "+cookie.Name+"="+cookie.Value+"\r\n"+
-		"Content-Length: 10\r\nConnection: close\r\n\r\nabc")
+		"Content-Type: image/jpeg\r\n"+
+		"Content-Length: 10\r\nConnection: close\r\n\r\n\xff\xd8\xffabc")
 	if err != nil {
-		t.Fatalf("send partial upload request: %v", err)
+		t.Fatalf("send partial derivative request: %v", err)
 	}
 
 	started := time.Now()
-	response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodPut})
+	response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodPost})
 	elapsed := time.Since(started)
 	if err != nil {
-		t.Fatalf("read response after stalled upload: %v", err)
+		t.Fatalf("read response after stalled derivative: %v", err)
 	}
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(response.Body)
@@ -326,54 +202,38 @@ func TestPhotoUploadIdleTimeoutOverHTTP(t *testing.T) {
 		t.Fatalf("idle-timeout response took %s; want prompt response", elapsed)
 	}
 	if response.StatusCode != http.StatusRequestTimeout || string(responseBody) != "{\"error\":\"upload_idle_timeout\"}\n" {
-		t.Fatalf("stalled PUT response = %d %q after %s; want 408 upload_idle_timeout", response.StatusCode, responseBody, elapsed)
+		t.Fatalf("stalled derivative response = %d %q after %s; want 408 upload_idle_timeout", response.StatusCode, responseBody, elapsed)
 	}
 
 	normalConn, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
 	if err != nil {
-		t.Fatalf("connect for complete upload: %v", err)
+		t.Fatalf("connect for complete derivative: %v", err)
 	}
 	defer normalConn.Close()
 	if err := normalConn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		t.Fatalf("set complete-upload client deadline: %v", err)
+		t.Fatalf("set complete-derivative client deadline: %v", err)
 	}
-	_, err = io.WriteString(normalConn, "PUT /api/media/123e4567-e89b-42d3-a456-426614174021 HTTP/1.1\r\n"+
+	_, err = io.WriteString(normalConn, "POST /api/media/223e4567-e89b-42d3-a456-426614174021/derived?variant=t HTTP/1.1\r\n"+
 		"Host: "+server.Listener.Addr().String()+"\r\n"+
 		"Cookie: "+cookie.Name+"="+cookie.Value+"\r\n"+
-		"Content-Length: 3\r\nConnection: close\r\n\r\nabc")
+		"Content-Type: image/jpeg\r\n"+
+		"Content-Length: 6\r\nConnection: close\r\n\r\n\xff\xd8\xffabc")
 	if err != nil {
-		t.Fatalf("send complete upload request: %v", err)
+		t.Fatalf("send complete derivative request: %v", err)
 	}
-	normalResponse, err := http.ReadResponse(bufio.NewReader(normalConn), &http.Request{Method: http.MethodPut})
+	normalResponse, err := http.ReadResponse(bufio.NewReader(normalConn), &http.Request{Method: http.MethodPost})
 	if err != nil {
-		t.Fatalf("read complete-upload response: %v", err)
+		t.Fatalf("read complete-derivative response: %v", err)
 	}
 	defer normalResponse.Body.Close()
 	if normalResponse.StatusCode != http.StatusCreated {
-		t.Fatalf("complete PUT status = %d; want 201", normalResponse.StatusCode)
+		t.Fatalf("complete derivative status = %d; want 201", normalResponse.StatusCode)
 	}
-}
-
-type drainingPhotoUploader struct{}
-
-func (drainingPhotoUploader) SavePhoto(_ context.Context, id string, _ int64, body io.Reader) (upload.Media, error) {
-	if _, err := io.Copy(io.Discard, body); err != nil {
-		return upload.Media{}, err
-	}
-	return upload.Media{ID: id}, nil
 }
 
 func derivativeRequest(id, variant string, body []byte, cookie *http.Cookie) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, "/api/media/"+id+"/derived?variant="+variant, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "image/jpeg")
-	if cookie != nil {
-		request.AddCookie(cookie)
-	}
-	return request
-}
-
-func photoRequest(id string, body []byte, cookie *http.Cookie) *http.Request {
-	request := httptest.NewRequest(http.MethodPut, "/api/media/"+id, bytes.NewReader(body))
 	if cookie != nil {
 		request.AddCookie(cookie)
 	}
@@ -405,88 +265,26 @@ func newHTTPPhotoStoreWithPaths(t *testing.T, options upload.Options) (*upload.S
 	return store, paths
 }
 
+// blockingPhotoDerivativeUploader holds a capacity slot in SaveDerivative until released.
 type blockingPhotoDerivativeUploader struct {
 	started   chan struct{}
 	release   chan struct{}
 	startOnce sync.Once
 }
 
-func (u *blockingPhotoDerivativeUploader) SavePhoto(ctx context.Context, id string, _ int64, _ io.Reader) (upload.Media, error) {
+func (u *blockingPhotoDerivativeUploader) SaveDerivative(ctx context.Context, id, variant string, _ int64, _ io.Reader) (upload.Derivative, error) {
 	u.startOnce.Do(func() { close(u.started) })
 	select {
 	case <-u.release:
-		return upload.Media{ID: id}, nil
+		return upload.Derivative{}, nil
 	case <-ctx.Done():
-		return upload.Media{}, ctx.Err()
-	}
-}
-
-func (u *blockingPhotoDerivativeUploader) SaveDerivative(context.Context, string, string, int64, io.Reader) (upload.Derivative, error) {
-	return upload.Derivative{}, nil
-}
-
-type blockingPhotoUploader struct {
-	started   chan struct{}
-	release   chan struct{}
-	startOnce sync.Once
-}
-
-func (u *blockingPhotoUploader) SavePhoto(ctx context.Context, id string, size int64, body io.Reader) (upload.Media, error) {
-	u.startOnce.Do(func() { close(u.started) })
-	select {
-	case <-u.release:
-		return upload.Media{ID: id}, nil
-	case <-ctx.Done():
-		return upload.Media{}, ctx.Err()
-	}
-}
-
-func TestVideoUploadUsesVideoLimitAndRejectsOversizedMedia(t *testing.T) {
-	options := upload.Options{MaxBytes: 40, MaxVideoBytes: 200, MaxConcurrent: 1}
-	store, paths := newHTTPPhotoStoreWithPaths(t, options)
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 40, nil, WithMaxVideoBytes(200))
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	video := append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, bytes.Repeat([]byte{9}, 100)...)
-
-	created := httptest.NewRecorder()
-	handler.ServeHTTP(created, photoRequest(testMediaID, video, cookie))
-	if created.Code != http.StatusCreated || created.Body.Len() != 0 {
-		t.Fatalf("video PUT = %d %q; want empty 201", created.Code, created.Body.String())
-	}
-	retry := httptest.NewRecorder()
-	handler.ServeHTTP(retry, photoRequest(testMediaID, video, cookie))
-	if retry.Code != http.StatusOK || retry.Body.Len() != 0 {
-		t.Fatalf("video retry = %d %q; want empty 200", retry.Code, retry.Body.String())
-	}
-
-	const otherID = "223e4567-e89b-42d3-a456-426614174000"
-	photo := append([]byte{0xff, 0xd8, 0xff}, bytes.Repeat([]byte{1}, 60)...)
-	for _, test := range []struct {
-		name string
-		body []byte
-		want string
-	}{
-		{"photo above photo limit", photo, "photo_too_large"},
-		{"media above every limit", bytes.Repeat([]byte{9}, 300), "media_too_large"},
-	} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, photoRequest(otherID, test.body, cookie))
-		want := "{\"error\":\"" + test.want + "\"}\n"
-		if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != want {
-			t.Fatalf("%s = %d %q; want 413 %q", test.name, response.Code, response.Body.String(), want)
-		}
-	}
-	if entries, _ := os.ReadDir(paths.Originals); len(entries) != 1 {
-		t.Fatalf("originals = %d files; want only the accepted video", len(entries))
-	}
-	if entries, _ := readDirWithoutTus(t, paths.Tmp); len(entries) != 0 {
-		t.Fatalf("rejected uploads left temp files: %v", entries)
+		return upload.Derivative{}, ctx.Err()
 	}
 }
 
 func TestDerivativeUploadKeepsPhotoLimitWhenVideoLimitIsLarger(t *testing.T) {
 	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 5, MaxVideoBytes: 200, MaxConcurrent: 1})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 5, nil, WithMaxVideoBytes(200))
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 5, nil)
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff, 1, 2, 3}, cookie))

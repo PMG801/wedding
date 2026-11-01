@@ -6,7 +6,7 @@
 #   - vmstat: CPU us/sy/id and I/O wait wa (1 s sample)
 #   - iostat -dx: highest %util across disks (only when iostat is installed)
 #   - df of the data volume: available MiB and used %
-#   - number of entries in <data>/tmp (staged uploads; should drain when idle)
+#   - number of entries in <data>/tmp, not counting the tus/ directory (staged uploads; should drain when idle)
 # The raw iostat output is kept in iostat.log.
 #
 # It only reads: it never writes to the data directory, never restarts or stops
@@ -150,7 +150,7 @@ sample_once() {
   # An unreadable tmp/ (owned by the app UID) reads as n/a, never as 0.
   tmp="n/a"
   if [[ -d "$data_dir/tmp" ]] && ls -1A "$data_dir/tmp" >/dev/null 2>&1; then
-    tmp="$(ls -1A "$data_dir/tmp" | wc -l | tr -d ' ')"
+    tmp="$(ls -1A "$data_dir/tmp" | awk '$0 != "tus"' | wc -l | tr -d ' ')"
   fi
 
   printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "$ts" "$app" "$web" "$vm" "$disk" "$avail" "$used" "$tmp" >>"$csv"

@@ -78,10 +78,6 @@ func TestDerivativeUploadMapsStoreDerivativeTooLargeToTheSameResponse(t *testing
 
 type derivativeTooLargeUploader struct{}
 
-func (derivativeTooLargeUploader) SavePhoto(context.Context, string, int64, io.Reader) (upload.Media, error) {
-	return upload.Media{}, nil
-}
-
 func (derivativeTooLargeUploader) SaveDerivative(context.Context, string, string, int64, io.Reader) (upload.Derivative, error) {
 	return upload.Derivative{}, upload.ErrDerivativeTooLarge
 }
@@ -93,13 +89,13 @@ func TestOversizedDerivativeIsRefusedBeforeCapacityIsChecked(t *testing.T) {
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		handler.ServeHTTP(httptest.NewRecorder(), photoRequest(testMediaID, []byte("raw"), cookie))
+		handler.ServeHTTP(httptest.NewRecorder(), derivativeRequest(testMediaID, "t", []byte{0xff, 0xd8, 0xff, 1}, cookie))
 	}()
 	select {
 	case <-photos.started:
 	case <-time.After(time.Second):
 		close(photos.release)
-		t.Fatal("original upload did not occupy the only capacity slot")
+		t.Fatal("derivative upload did not occupy the only capacity slot")
 	}
 
 	body := append([]byte{0xff, 0xd8, 0xff}, bytes.Repeat([]byte{1}, 98)...)

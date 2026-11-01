@@ -3,7 +3,9 @@ package upload
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,9 +64,7 @@ func TestSaveDerivativeStaysPrivateUntilPhotoConfirmationAndRetriesWithoutRewrit
 	}
 
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
-	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err != nil {
-		t.Fatalf("SavePhoto() after staged derivative: %v", err)
-	}
+	seedOriginal(t, store, testID, png)
 	before, err := os.ReadFile(publishedPath)
 	if err != nil || !bytes.Equal(before, jpeg) {
 		t.Fatalf("published derivative = %v, %v; want original JPEG bytes", before, err)
@@ -83,9 +83,7 @@ func TestSaveDerivativeStaysPrivateUntilPhotoConfirmationAndRetriesWithoutRewrit
 func TestSaveDerivativeCannotPublishForHiddenOriginal(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1})
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
-	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err != nil {
-		t.Fatalf("SavePhoto() = %v", err)
-	}
+	seedOriginal(t, store, testID, png)
 	if _, err := store.db.Exec("UPDATE media SET visibility = 'hidden' WHERE id = ?", testID); err != nil {
 		t.Fatal(err)
 	}
@@ -107,24 +105,21 @@ func TestSaveDerivativeCannotPublishForHiddenOriginal(t *testing.T) {
 	}
 }
 
-func TestSavePhotoConfirmsAndRetryDoesNotReadOrRewrite(t *testing.T) {
+func TestTusOriginalConfirmsAndRetryDoesNotRewrite(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 2})
 	body := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
-	got, err := store.SavePhoto(context.Background(), testID, int64(len(body)), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("SavePhoto() error = %v", err)
-	}
-	if got.MIME != "image/png" || got.SizeBytes != int64(len(body)) || got.AlreadyConfirmed {
-		t.Fatalf("unexpected first confirmation: %+v", got)
+	got := seedOriginal(t, store, testID, body)
+	if got.MIME != "image/png" || got.SizeBytes != int64(len(body)) || got.Visibility != "visible" {
+		t.Fatalf("unexpected confirmation: %+v", got)
 	}
 	filePath := filepath.Join(paths.Originals, got.StorageName)
 	before, err := os.ReadFile(filePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	retry, err := store.SavePhoto(context.Background(), testID, 0, errorReader{})
-	if err != nil || !retry.AlreadyConfirmed || retry.StorageName != got.StorageName {
-		t.Fatalf("idempotent retry = %+v, %v", retry, err)
+	retry := tusCreateUpload(tusSession(t, store), testID, int64(len(body)))
+	if retry.Code != http.StatusConflict || retry.Body.String() != "{\"error\":\"already_confirmed\"}\n" {
+		t.Fatalf("creation retry = %d %q; want 409 already_confirmed", retry.Code, retry.Body.String())
 	}
 	after, err := os.ReadFile(filePath)
 	if err != nil || string(after) != string(before) {
@@ -136,42 +131,66 @@ func TestSavePhotoConfirmsAndRetryDoesNotReadOrRewrite(t *testing.T) {
 	}
 }
 
-func TestSavePhotoRejectsSizeSignatureAndIncompleteBodyWithoutPublishing(t *testing.T) {
+func TestTusRejectsSizeSignatureAndIncompleteBodyWithoutPublishing(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 9, MaxConcurrent: 1})
+	resumable := tusSession(t, store)
 	for _, test := range []struct {
-		name string
-		size int64
-		body []byte
+		name       string
+		id         string
+		size       int64
+		body       []byte
+		wantCreate int
+		wantPatch  int
+		wantError  string
 	}{
-		{"oversize", 10, []byte("ignored")},
-		{"unknown signature", 3, []byte("bad")},
-		{"short body", 9, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}},
+		{"oversize refused at creation", testID, 10, nil, http.StatusRequestEntityTooLarge, 0, "media_too_large"},
+		{"unknown signature refused at completion", secondID, 3, []byte("bad"), http.StatusCreated, http.StatusUnsupportedMediaType, "unsupported_photo_format"},
+		{"short body never completes", thirdID, 9, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, http.StatusCreated, http.StatusNoContent, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := store.SavePhoto(context.Background(), testID, test.size, bytes.NewReader(test.body)); err == nil {
-				t.Fatal("SavePhoto() succeeded; want rejection")
+			created := tusCreateUpload(resumable, test.id, test.size)
+			if created.Code != test.wantCreate {
+				t.Fatalf("creation = %d %q; want %d", created.Code, created.Body.String(), test.wantCreate)
 			}
-			entries, err := readDirWithoutTus(paths.Tmp)
-			if err != nil || len(entries) != 0 {
-				t.Fatalf("partial files remain: %v, %v", entries, err)
+			if test.wantCreate != http.StatusCreated {
+				if want := "{\"error\":\"" + test.wantError + "\"}\n"; created.Body.String() != want {
+					t.Fatalf("creation body = %q; want %q", created.Body.String(), want)
+				}
+			} else {
+				patched := tusPatchUpload(resumable, test.id, 0, test.body)
+				if patched.Code != test.wantPatch {
+					t.Fatalf("PATCH = %d %q; want %d", patched.Code, patched.Body.String(), test.wantPatch)
+				}
+				if test.wantError != "" {
+					if want := "{\"error\":\"" + test.wantError + "\"}\n"; patched.Body.String() != want {
+						t.Fatalf("PATCH body = %q; want %q", patched.Body.String(), want)
+					}
+				}
 			}
-			entries, err = os.ReadDir(paths.Originals)
+			if _, err := store.confirmed(context.Background(), test.id); !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("media row for rejected upload: %v; want none", err)
+			}
+			entries, err := os.ReadDir(paths.Originals)
 			if err != nil || len(entries) != 0 {
 				t.Fatalf("unconfirmed files published: %v, %v", entries, err)
+			}
+			entries, err = readDirWithoutTus(paths.Tmp)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("partial files remain: %v, %v", entries, err)
 			}
 		})
 	}
 }
 
-func TestSavePhotoHonorsMinimumFreeDisk(t *testing.T) {
+func TestTusCreateHonorsMinimumFreeDisk(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 1024, MaxConcurrent: 1, MinFreeBytes: ^uint64(0)})
-	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
-	if _, err := store.SavePhoto(context.Background(), testID, int64(len(png)), bytes.NewReader(png)); err == nil {
-		t.Fatal("SavePhoto() succeeded below the configured free-disk threshold")
+	created := tusCreateUpload(tusSession(t, store), testID, 8)
+	if created.Code != http.StatusInsufficientStorage || created.Body.String() != "{\"error\":\"insufficient_storage\"}\n" {
+		t.Fatalf("creation below the free-disk threshold = %d %q; want 507", created.Code, created.Body.String())
 	}
-	entries, err := readDirWithoutTus(paths.Tmp)
+	entries, err := os.ReadDir(paths.Tus)
 	if err != nil || len(entries) != 0 {
-		t.Fatalf("partial files remain: %v, %v", entries, err)
+		t.Fatalf("pending uploads after refused creation = %v, %v; want none", entries, err)
 	}
 }
 
@@ -226,29 +245,38 @@ func TestDetectMediaTypeRecognizesVideosAndKeepsPhotos(t *testing.T) {
 	}
 }
 
-func TestSavePhotoStoresVideoUsingVideoLimitAndKeepsPhotoLimit(t *testing.T) {
+func TestTusStoresVideoUsingVideoLimitAndKeepsPhotoLimit(t *testing.T) {
 	store, paths := newTestStore(t, Options{MaxBytes: 20, MaxVideoBytes: 200, MaxConcurrent: 1})
 	video := append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 100)...)
-	media, err := store.SavePhoto(context.Background(), testID, int64(len(video)), bytes.NewReader(video))
-	if err != nil || media.MIME != "video/mp4" || !strings.HasSuffix(media.StorageName, ".mp4") {
-		t.Fatalf("SavePhoto(video) = %+v, %v", media, err)
+	media := seedOriginal(t, store, testID, video)
+	if media.MIME != "video/mp4" || !strings.HasSuffix(media.StorageName, ".mp4") {
+		t.Fatalf("video confirmation = %+v", media)
 	}
 	if got, err := os.ReadFile(filepath.Join(paths.Originals, media.StorageName)); err != nil || !bytes.Equal(got, video) {
 		t.Fatalf("stored video differs: %v", err)
 	}
 
-	otherID := "223e4567-e89b-42d3-a456-426614174000"
+	resumable := tusSession(t, store)
+	const otherID = "223e4567-e89b-42d3-a456-426614174000"
 	photo := append([]byte{0xff, 0xd8, 0xff}, bytes.Repeat([]byte{1}, 30)...)
-	if _, err := store.SavePhoto(context.Background(), otherID, int64(len(photo)), bytes.NewReader(photo)); !errors.Is(err, ErrPhotoTooLarge) {
-		t.Fatalf("oversized photo error = %v, want ErrPhotoTooLarge", err)
+	if created := tusCreateUpload(resumable, otherID, int64(len(photo))); created.Code != http.StatusCreated {
+		t.Fatalf("creation of a photo above the photo limit = %d; want 201 until completion", created.Code)
+	}
+	if patched := tusPatchUpload(resumable, otherID, 0, photo); patched.Code != http.StatusRequestEntityTooLarge || patched.Body.String() != "{\"error\":\"photo_too_large\"}\n" {
+		t.Fatalf("oversized photo completion = %d %q; want 413 photo_too_large", patched.Code, patched.Body.String())
 	}
 	tooBig := append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 300)...)
-	if _, err := store.SavePhoto(context.Background(), otherID, int64(len(tooBig)), bytes.NewReader(tooBig)); !errors.Is(err, ErrMediaTooLarge) {
-		t.Fatalf("oversized media error = %v, want ErrMediaTooLarge", err)
+	if created := tusCreateUpload(resumable, otherID, int64(len(tooBig))); created.Code != http.StatusRequestEntityTooLarge || created.Body.String() != "{\"error\":\"media_too_large\"}\n" {
+		t.Fatalf("creation above every limit = %d %q; want 413 media_too_large", created.Code, created.Body.String())
 	}
-	small, _ := newTestStore(t, Options{MaxBytes: 300, MaxVideoBytes: 100, MaxConcurrent: 1})
-	if _, err := small.SavePhoto(context.Background(), otherID, 150, bytes.NewReader(append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 130)...))); !errors.Is(err, ErrVideoTooLarge) {
-		t.Fatalf("video above a smaller video limit error = %v, want ErrVideoTooLarge", err)
+
+	small, smallPaths := newTestStore(t, Options{MaxBytes: 300, MaxVideoBytes: 100, MaxConcurrent: 1})
+	smallVideo := append(ftypHeader("mp42"), bytes.Repeat([]byte{7}, 130)...)
+	if created := tusCreateUpload(tusSession(t, small), otherID, int64(len(smallVideo))); created.Code != http.StatusCreated {
+		t.Fatalf("creation of a video above the video limit = %d; want 201 until completion", created.Code)
+	}
+	if patched := tusPatchUpload(tusSession(t, small), otherID, 0, smallVideo); patched.Code != http.StatusRequestEntityTooLarge || patched.Body.String() != "{\"error\":\"video_too_large\"}\n" {
+		t.Fatalf("video above a smaller video limit completion = %d %q; want 413 video_too_large", patched.Code, patched.Body.String())
 	}
 	entries, _ := os.ReadDir(paths.Originals)
 	if len(entries) != 1 {
@@ -256,5 +284,8 @@ func TestSavePhotoStoresVideoUsingVideoLimitAndKeepsPhotoLimit(t *testing.T) {
 	}
 	if left, _ := readDirWithoutTus(paths.Tmp); len(left) != 0 {
 		t.Fatalf("rejected uploads left temp files: %v", left)
+	}
+	if left, _ := os.ReadDir(smallPaths.Originals); len(left) != 0 {
+		t.Fatalf("rejected video left originals in the small store: %v", left)
 	}
 }

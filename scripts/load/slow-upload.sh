@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # T3 driver: N concurrent slow video uploads through the real guest flow.
 #
-# Each worker enters through /e/{token} (guest cookie), PUTs one synthetic MP4
-# to /api/media/{uuid} with an explicit Content-Length, then optionally re-PUTs
-# the same id expecting 200 (idempotent retry). curl streams the body from one
-# sparse file on this machine (--upload-file) and throttles it per connection
-# (--limit-rate), so memory stays flat whatever the size of the files.
+# Each worker enters through /e/{token} (guest cookie), creates a tus upload of one
+# synthetic MP4 (POST /api/uploads/, ADR-0014), sends every byte in one PATCH from
+# offset 0 with an explicit Content-Length (expects 204), then optionally repeats the
+# creation expecting 409 already_confirmed (idempotent retry). curl streams the body
+# from one sparse file on this machine (--upload-file) and throttles it per
+# connection (--limit-rate), so memory stays flat whatever the size of the files.
 #
 # Run it on the load generator, never on the server.
 #
@@ -17,7 +18,7 @@
 #   LOAD_SLOW_COUNT          concurrent uploads                          (default 25)
 #   LOAD_SLOW_BYTES          size of each video; K/M/G suffixes allowed  (default 200M)
 #   LOAD_SLOW_MBPS           per-connection rate limit in Mbit/s         (default 3)
-#   LOAD_SLOW_RETRY          re-PUT each video expecting 200 (1/0)       (default 0)
+#   LOAD_SLOW_RETRY          repeat each creation expecting 409 (1/0)    (default 0)
 #   LOAD_SLOW_TIMEOUT        per-request time cap in seconds             (default 1800)
 #
 # Safety caps (the run refuses to start, or stops early, instead of overrunning):
@@ -106,9 +107,9 @@ is_stop_status() {
 }
 
 worker() {
-  local idx="$1" id out code cookie body_file error_note remaining max_time
+  local idx="$1" id out code seconds sent speed cookie body_file error_note remaining max_time step
+  local b64_id b64_type patch_code=""
   local -a insecure=()
-  local PUT_CODE=""
   if [[ "${LOAD_INSECURE:-}" == 1 ]]; then insecure=(-k); fi
   id="$(new_uuid)"
 
@@ -129,10 +130,14 @@ worker() {
     return 0
   fi
 
-  local step
-  for step in put retry; do
+  b64_id="$(printf '%s' "$id" | base64 | tr -d '\n')"
+  b64_type="$(printf '%s' 'video/mp4' | base64 | tr -d '\n')"
+
+  # create: POST /api/uploads/ declares the size (201). patch: one PATCH from offset 0 (204).
+  # retry: the same creation again (409 already_confirmed), only after a completed patch.
+  for step in create patch retry; do
     if [[ "$step" == retry ]]; then
-      if [[ "$LOAD_SLOW_RETRY" != 1 || "$PUT_CODE" != 201 ]]; then break; fi
+      if [[ "$LOAD_SLOW_RETRY" != 1 || "$patch_code" != 204 ]]; then break; fi
     fi
     if [[ -e "$RUN_DIR/STOP" ]]; then
       record "$idx" "$id" "$step" skipped 0 0 0 stop_flag_set
@@ -146,27 +151,42 @@ worker() {
     max_time=$(( remaining < LOAD_SLOW_TIMEOUT ? remaining : LOAD_SLOW_TIMEOUT ))
 
     body_file="$(mktemp "${TMPDIR:-/tmp}/slow-upload-body.XXXXXX")"
-    out="$(curl -sS "${insecure[@]+"${insecure[@]}"}" -o "$body_file" \
-      -w '%{http_code} %{time_total} %{size_upload} %{speed_upload}' \
-      --max-time "$max_time" --limit-rate "$RATE_BPS" \
-      -X PUT \
-      -H "Cookie: guest_session=$cookie" \
-      -H 'Content-Type: video/mp4' \
-      -H "Content-Length: $LOAD_SLOW_BYTES" \
-      --upload-file "$PAYLOAD" \
-      "$LOAD_BASE_URL/api/media/$id" 2>/dev/null || true)"
+    if [[ "$step" == patch ]]; then
+      out="$(curl -sS "${insecure[@]+"${insecure[@]}"}" -o "$body_file" \
+        -w '%{http_code} %{time_total} %{size_upload} %{speed_upload}' \
+        --max-time "$max_time" --limit-rate "$RATE_BPS" \
+        -X PATCH \
+        -H "Cookie: guest_session=$cookie" \
+        -H 'Tus-Resumable: 1.0.0' \
+        -H 'Upload-Offset: 0' \
+        -H 'Content-Type: application/offset+octet-stream' \
+        -H "Content-Length: $LOAD_SLOW_BYTES" \
+        --upload-file "$PAYLOAD" \
+        "$LOAD_BASE_URL/api/uploads/$id" 2>/dev/null || true)"
+    else
+      out="$(curl -sS "${insecure[@]+"${insecure[@]}"}" -o "$body_file" \
+        -w '%{http_code} %{time_total} %{size_upload} %{speed_upload}' \
+        --max-time "$max_time" \
+        -X POST \
+        -H "Cookie: guest_session=$cookie" \
+        -H 'Tus-Resumable: 1.0.0' \
+        -H "Upload-Length: $LOAD_SLOW_BYTES" \
+        -H "Upload-Metadata: id $b64_id,filetype $b64_type" \
+        "$LOAD_BASE_URL/api/uploads/" 2>/dev/null || true)"
+    fi
     read -r code seconds sent speed <<<"$out" || true
     error_note=""
-    if [[ "$code" != 201 && "$code" != 200 ]]; then
+    if [[ "$code" != 201 && "$code" != 204 && "$code" != 409 ]]; then
       error_note="$(sed -n 's/.*"error":"\([^"]*\)".*/\1/p' "$body_file" 2>/dev/null | head -c 80)"
     fi
     rm -f -- "$body_file"
 
     record "$idx" "$id" "$step" "${code:-000}" "${seconds:-0}" "${sent:-0}" "${speed:-0}" "$error_note"
-    if [[ "$step" == put ]]; then PUT_CODE="$code"; fi
+    if [[ "$step" == patch ]]; then patch_code="$code"; fi
     if is_stop_status "$code"; then : >"$RUN_DIR/STOP"; fi
-    # A non-2xx first PUT means there is nothing to retry.
-    if [[ "$step" == put && "$code" != 201 ]]; then break; fi
+    # A refused creation or PATCH means there is nothing to continue with.
+    if [[ "$step" == create && "$code" != 201 ]]; then break; fi
+    if [[ "$step" == patch && "$code" != 204 ]]; then break; fi
   done
   return 0
 }
@@ -174,30 +194,29 @@ worker() {
 summary() {
   local csv="$RUN_DIR/uploads.csv" out="$RUN_DIR/summary.txt"
   {
-    echo "T3 slow uploads: $(date -u +%FT%TZ)"
+    echo "T3 slow uploads (tus): $(date -u +%FT%TZ)"
     echo "target: $LOAD_BASE_URL (token redacted)"
     echo "plan: $LOAD_SLOW_COUNT x $LOAD_SLOW_BYTES bytes, ${LOAD_SLOW_MBPS} Mbit/s per connection, retry=$LOAD_SLOW_RETRY"
     echo
     echo "counts by step and http_code:"
     awk -F, 'NR > 1 { c[$4 " " $5]++ } END { for (k in c) print "  " k ": " c[k] }' "$csv" | sort
     echo
-    echo "successful first PUTs (201):"
-    awk -F, 'NR > 1 && $4 == "put" && $5 == 201 { n++; b += $7 } END { printf "  count=%d bytes=%d\n", n + 0, b + 0 }' "$csv"
-    awk -F, 'NR > 1 && $4 == "put" && $5 == 201 { print $6 }' "$csv" | sort -n | awk '
+    echo "completed uploads (PATCH 204):"
+    awk -F, 'NR > 1 && $4 == "patch" && $5 == 204 { n++; b += $7 } END { printf "  count=%d bytes=%d\n", n + 0, b + 0 }' "$csv"
+    awk -F, 'NR > 1 && $4 == "patch" && $5 == 204 { print $6 }' "$csv" | sort -n | awk '
       { a[NR] = $1 }
       END {
-        if (NR == 0) { print "  no successful uploads"; exit }
+        if (NR == 0) { print "  no completed uploads"; exit }
         i50 = int(0.5 * NR); if (i50 < 0.5 * NR) i50++; if (i50 < 1) i50 = 1
         i95 = int(0.95 * NR); if (i95 < 0.95 * NR) i95++; if (i95 < 1) i95 = 1
         printf "  seconds p50=%.1f p95=%.1f max=%.1f\n", a[i50], a[i95], a[NR]
       }'
     echo
-    echo "idempotent re-PUT (expects 200):"
+    echo "idempotent retry (POST, expects 409 already_confirmed):"
     awk -F, 'NR > 1 && $4 == "retry" { c[$5]++ } END { for (k in c) print "  " k ": " c[k] }' "$csv" | sort
-    echo "  re-PUT answered before the whole body was sent (bytes < size): $(awk -F, -v want="$LOAD_SLOW_BYTES" 'NR > 1 && $4 == "retry" && $7 + 0 < want + 0 { n++ } END { print n + 0 }' "$csv")"
     echo
     echo "non-success rows (step, code, note):"
-    awk -F, 'NR > 1 && !($4 == "put" && $5 == 201) && !($4 == "retry" && $5 == 200) { print "  " $4 ", " $5 ", " $9 }' "$csv" | sort | uniq -c
+    awk -F, 'NR > 1 && !(($4 == "create" && $5 == 201) || ($4 == "patch" && $5 == 204) || ($4 == "retry" && $5 == 409)) { print "  " $4 ", " $5 ", " $9 }' "$csv" | sort | uniq -c
     if [[ -e "$RUN_DIR/STOP" ]]; then echo; echo "STOP flag was set: a server status in LOAD_STOP_ON_STATUS ended the run early."; fi
   } | tee "$out"
 }

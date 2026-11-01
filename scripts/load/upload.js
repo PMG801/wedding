@@ -2,9 +2,14 @@
 // signature followed by zeros), so no image files are needed: the backend only
 // validates the magic bytes and the declared size.
 //
+// Each photo goes through the tus endpoint (ADR-0014): a POST declares the size and
+// one PATCH carries every byte. The idempotent retry repeats the POST, which answers
+// 409 already_confirmed.
+//
 // Every limit is an environment variable so the test stops where YOU decide,
 // not where the machine gives up. See scripts/load.sh for the full list.
 import http from 'k6/http'
+import encoding from 'k6/encoding'
 import exec from 'k6/execution'
 import { Counter, Rate } from 'k6/metrics'
 import { check, fail } from 'k6'
@@ -44,7 +49,7 @@ if (ITERATIONS < 1) fail(`LOAD_MAX_TOTAL_BYTES (${MAX_TOTAL_BYTES}) is smaller t
 // Statuses that mean "the server enforced one of its configured limits". They
 // are reported separately and are not failures.
 const LIMIT_STATUSES = [408, 413, 503, 507]
-http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, ...LIMIT_STATUSES))
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 409, ...LIMIT_STATUSES))
 
 const limitHits = new Counter('limit_hits')
 const bytesAccepted = new Counter('bytes_accepted')
@@ -84,7 +89,8 @@ function enter() {
   return `guest_session=${value}`
 }
 
-function record(res, label) {
+// record counts a response and reports whether it is one the step expects.
+function record(res, label, expected = (status) => status >= 200 && status < 300) {
   if (LIMIT_STATUSES.includes(res.status)) {
     limitHits.add(1, { status: String(res.status), step: label })
     unexpectedErrors.add(false)
@@ -93,7 +99,7 @@ function record(res, label) {
     }
     return false
   }
-  const ok = res.status >= 200 && res.status < 300
+  const ok = expected(res.status)
   unexpectedErrors.add(!ok)
   return ok
 }
@@ -105,17 +111,31 @@ export default function () {
     bytes.set([0xff, 0xd8, 0xff, 0xe0])
     payload = bytes.buffer
   }
-  const params = { headers: { Cookie: cookie, 'Content-Type': 'image/jpeg' }, tags: { step: 'upload' } }
   const id = uuidv4()
+  const headers = { Cookie: cookie, 'Tus-Resumable': '1.0.0' }
+  const metadata = `id ${encoding.b64encode(id)},filetype ${encoding.b64encode('image/jpeg')}`
+  const create = (step) =>
+    http.post(`${BASE_URL}/api/uploads/`, null, {
+      headers: { ...headers, 'Upload-Length': String(PHOTO_BYTES), 'Upload-Metadata': metadata },
+      tags: { step }
+    })
 
-  const upload = http.put(`${BASE_URL}/api/media/${id}`, payload, params)
-  if (record(upload, 'upload')) {
-    bytesAccepted.add(PHOTO_BYTES)
-    check(upload, { 'upload created': (r) => r.status === 201 })
+  const created = create('upload')
+  if (record(created, 'upload', (status) => status === 201)) {
+    const patch = http.patch(`${BASE_URL}/api/uploads/${id}`, payload, {
+      headers: { ...headers, 'Upload-Offset': '0', 'Content-Type': 'application/offset+octet-stream' },
+      tags: { step: 'upload' }
+    })
+    if (record(patch, 'upload', (status) => status === 204)) {
+      bytesAccepted.add(PHOTO_BYTES)
+      check(patch, { 'upload completed': (r) => r.status === 204 })
 
-    if (RETRY) {
-      const retry = http.put(`${BASE_URL}/api/media/${id}`, payload, { ...params, tags: { step: 'retry' } })
-      if (record(retry, 'retry')) check(retry, { 'retry is idempotent': (r) => r.status === 200 })
+      if (RETRY) {
+        const retry = create('retry')
+        if (record(retry, 'retry', (status) => status === 409)) {
+          check(retry, { 'retry reports already confirmed': (r) => r.status === 409 })
+        }
+      }
     }
   }
 

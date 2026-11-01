@@ -59,7 +59,7 @@ func openAdminTestDatabase(t *testing.T) *sql.DB {
 	return database
 }
 
-func newAdminFixture(t *testing.T, photos photoUploader, gallery mediaLister, extra ...Option) *adminFixture {
+func newAdminFixture(t *testing.T, photos derivativePhotoUploader, gallery mediaLister, extra ...Option) *adminFixture {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
 	if err != nil {
@@ -229,7 +229,6 @@ func TestGuestRoutesRejectAdminCookie(t *testing.T) {
 	for _, route := range []struct{ method, path string }{
 		{http.MethodGet, "/api/media"},
 		{http.MethodGet, "/api/session"},
-		{http.MethodPut, "/api/media/" + testMediaID},
 		{http.MethodPost, "/api/media/" + testMediaID + "/derived?variant=t"},
 	} {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {

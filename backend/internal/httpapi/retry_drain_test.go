@@ -64,50 +64,20 @@ func sendRetry(t *testing.T, client *http.Client, method, url string, body []byt
 	return response.StatusCode, reused
 }
 
-func TestConfirmedPhotoRetryDrainsDeclaredBodyAndKeepsConnectionAlive(t *testing.T) {
-	const size = 1 << 20
-	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 2 << 20, MaxConcurrent: 2})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, 5*time.Second, 2<<20, nil)
-	server, consumed := newRetryDrainServer(t, handler)
-	client := server.Client()
-	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
-	photo := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, size-8)...)
-	const id = "123e4567-e89b-42d3-a456-426614174030"
-	url := server.URL + "/api/media/" + id
-
-	if status, _ := sendRetry(t, client, http.MethodPut, url, photo, cookie); status != http.StatusCreated {
-		t.Fatalf("first PUT = %d; want 201", status)
-	}
-	status, _ := sendRetry(t, client, http.MethodPut, url, photo, cookie)
-	if status != http.StatusOK {
-		t.Fatalf("confirmed re-PUT of 1 MiB = %d; want 200", status)
-	}
-	if got := consumed.Load(); got != size {
-		t.Fatalf("confirmed re-PUT consumed %d body bytes; want the whole %d-byte body drained", got, size)
-	}
-
-	next := "123e4567-e89b-42d3-a456-426614174031"
-	status, reused := sendRetry(t, client, http.MethodPut, server.URL+"/api/media/"+next, photo, cookie)
-	if status != http.StatusCreated {
-		t.Fatalf("PUT after confirmed re-PUT = %d; want 201", status)
-	}
-	if !reused {
-		t.Fatal("PUT after confirmed re-PUT opened a new connection; want the kept-alive connection reused")
-	}
-}
-
 func TestConfirmedDerivativeRetryDrainsDeclaredBodyAndKeepsConnectionAlive(t *testing.T) {
 	const size = 1 << 20
 	store := newHTTPPhotoStore(t, upload.Options{MaxBytes: 2 << 20, MaxConcurrent: 2})
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, 5*time.Second, 2<<20, nil)
+	resumable, err := store.Resumable(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 2, 5*time.Second, 2<<20, nil, WithResumable(resumable))
 	server, consumed := newRetryDrainServer(t, handler)
 	client := server.Client()
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 	const id = "123e4567-e89b-42d3-a456-426614174040"
 	photo := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, 64)...)
-	if status, _ := sendRetry(t, client, http.MethodPut, server.URL+"/api/media/"+id, photo, cookie); status != http.StatusCreated {
-		t.Fatalf("original PUT = %d; want 201", status)
-	}
+	seedOriginalViaTus(t, handler, id, photo, cookie)
 	derivative := append([]byte{0xff, 0xd8, 0xff}, make([]byte, size-3)...)
 	url := server.URL + "/api/media/" + id + "/derived?variant=t"
 	if status, _ := sendRetry(t, client, http.MethodPost, url, derivative, cookie); status != http.StatusCreated {

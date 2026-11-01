@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"log/slog"
 	"net"
 	"net/http"
@@ -167,13 +168,15 @@ func TestAppHandlerWiresAdminSwitchIntoUploadsAndPersistsIt(t *testing.T) {
 	}
 
 	guest := auth.NewGuestCookie([]byte(cfg.SessionKey), time.Now())
-	photo := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
-	putRequest := httptest.NewRequest(http.MethodPut, "/api/media/123e4567-e89b-42d3-a456-426614174000", bytes.NewReader(photo))
-	putRequest.AddCookie(guest)
+	create := httptest.NewRequest(http.MethodPost, "/api/uploads/", nil)
+	create.Header.Set("Tus-Resumable", "1.0.0")
+	create.Header.Set("Upload-Length", "11")
+	create.Header.Set("Upload-Metadata", "id "+base64.StdEncoding.EncodeToString([]byte("123e4567-e89b-42d3-a456-426614174000"))+",filetype "+base64.StdEncoding.EncodeToString([]byte("image/png")))
+	create.AddCookie(guest)
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, putRequest)
+	handler.ServeHTTP(response, create)
 	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"uploads_paused\"}\n" {
-		t.Fatalf("PUT while paused = %d %q; want 503 uploads_paused", response.Code, response.Body.String())
+		t.Fatalf("tus POST while paused = %d %q; want 503 uploads_paused", response.Code, response.Body.String())
 	}
 
 	// A fresh handler on the same database must start with the persisted switch.

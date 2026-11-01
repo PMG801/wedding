@@ -90,7 +90,6 @@ func (f *resumableFixture) build(options upload.Options, maxConcurrent int) {
 	}
 	f.store = store
 	f.handler = NewHandler(testEventToken, []byte(testSessionKey), store, maxConcurrent, time.Second, options.MaxBytes, nil,
-		WithMaxVideoBytes(options.MaxVideoBytes),
 		WithResumable(resumable),
 		WithAdmin("", f.switches, store),
 	)
@@ -193,6 +192,23 @@ func tusDelete(id string, cookie *http.Cookie) *http.Request {
 		request.AddCookie(cookie)
 	}
 	return request
+}
+
+// seedOriginalViaTus uploads body as the original of id through the public
+// handler: a creation that declares the length, then one PATCH with every byte.
+// It fails the test unless the PATCH completes the upload.
+func seedOriginalViaTus(t *testing.T, handler http.Handler, id string, body []byte, cookie *http.Cookie) {
+	t.Helper()
+	created := httptest.NewRecorder()
+	handler.ServeHTTP(created, tusCreate(idMetadata(id), int64(len(body)), cookie))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create upload %s = %d %q; want 201", id, created.Code, created.Body.String())
+	}
+	patched := httptest.NewRecorder()
+	handler.ServeHTTP(patched, tusPatch(id, 0, bytes.NewReader(body), int64(len(body)), cookie))
+	if patched.Code != http.StatusNoContent {
+		t.Fatalf("PATCH upload %s = %d %q; want 204", id, patched.Code, patched.Body.String())
+	}
 }
 
 func assertOffset(t *testing.T, response *httptest.ResponseRecorder, want string) {
@@ -637,20 +653,17 @@ func TestResumableRestartStillCountsPendingReservation(t *testing.T) {
 	}
 }
 
-func TestPhotoPutStillWorksBesideResumableRoutes(t *testing.T) {
+// The direct PUT upload is retired once tus carries originals (ADR-0014): the
+// path must not accept a body, write a file or confirm media.
+func TestRetiredPutMediaRouteWritesNothing(t *testing.T) {
 	f := newResumableFixture(t, upload.Options{MaxBytes: 1024, MaxConcurrent: 2}, 2)
-	body := jpegBody(64)
-	put := func() *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPut, "/api/media/"+testMediaID, bytes.NewReader(body))
-		request.AddCookie(f.cookie)
-		return f.serve(request)
+	request := httptest.NewRequest(http.MethodPut, "/api/media/"+testMediaID, bytes.NewReader(jpegBody(64)))
+	request.AddCookie(f.cookie)
+	response := f.serve(request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("PUT /api/media/{id} = %d %q; want 404 from the mux (route retired)", response.Code, response.Body.String())
 	}
-	if response := put(); response.Code != http.StatusCreated {
-		t.Fatalf("PUT /api/media/{id} = %d %q; want 201", response.Code, response.Body.String())
-	}
-	if response := put(); response.Code != http.StatusOK {
-		t.Fatalf("PUT retry = %d; want 200", response.Code)
-	}
+	f.requireNoChanges("retired PUT route")
 }
 
 // readDirWithoutTus lists a directory for the cleanup assertions. tmp/tus is a

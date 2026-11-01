@@ -21,9 +21,7 @@ func TestSaveDerivativeUsesItsOwnLimitBeforeReading(t *testing.T) {
 		t.Fatalf("SaveDerivative at the limit = %v", err)
 	}
 	// Photos keep MaxBytes.
-	if _, err := store.SavePhoto(context.Background(), secondID, 100, bytes.NewReader(pngOfSize(100))); err != nil {
-		t.Fatalf("SavePhoto above the derivative limit = %v", err)
-	}
+	seedOriginal(t, store, secondID, pngOfSize(100))
 }
 
 func TestReconcileDeletesExpiredStagedDerivativesOfUnconfirmedOriginals(t *testing.T) {

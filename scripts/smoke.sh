@@ -24,6 +24,8 @@ smoke_guest_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-guest.XXXXXX")"
 smoke_media_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-headers.XXXXXX")"
 smoke_media_body="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-media-body.XXXXXX")"
 smoke_admin_headers="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-admin.XXXXXX")"
+smoke_resume_part="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-resume-part.XXXXXX")"
+smoke_resume_rest="$(mktemp "${TMPDIR:-/tmp}/wedding-smoke-resume-rest.XXXXXX")"
 
 cleanup() {
   local status=$?
@@ -40,10 +42,38 @@ cleanup() {
       status=$cleanup_status
     fi
   }
-  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers" "$smoke_media_headers" "$smoke_media_body" "$smoke_admin_headers"
+  rm -f -- "$smoke_env_file" "$smoke_photo_file" "$smoke_guest_headers" "$smoke_media_headers" "$smoke_media_body" "$smoke_admin_headers" \
+    "$smoke_resume_part" "$smoke_resume_rest"
   exit "$status"
 }
 trap cleanup EXIT
+
+# tus 1.0.0 helpers (ADR-0014). Each one sends the guest cookie by hand: the
+# cookie is Secure and the smoke test runs over plain HTTP.
+tus_b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+file_size() { wc -c <"$1" | tr -d ' '; }
+
+# tus_create <id> <length> <filetype> <body-file>: prints the status of POST /api/uploads/.
+tus_create() {
+  curl -sS -o "$4" -w '%{http_code}' -X POST \
+    -H "Cookie: $guest_cookie" -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $2" \
+    -H "Upload-Metadata: id $(tus_b64 "$1"),filetype $(tus_b64 "$3")" \
+    "$smoke_base_url/api/uploads/"
+}
+
+# tus_patch <id> <offset> <file>: prints the status of PATCH /api/uploads/{id}.
+tus_patch() {
+  curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+    -H "Cookie: $guest_cookie" -H 'Tus-Resumable: 1.0.0' -H "Upload-Offset: $2" \
+    -H 'Content-Type: application/offset+octet-stream' --data-binary "@$3" \
+    "$smoke_base_url/api/uploads/$1"
+}
+
+# tus_head <id>: prints "<status> <Upload-Offset>" of HEAD /api/uploads/{id}.
+tus_head() {
+  curl -sS -I -H "Cookie: $guest_cookie" -H 'Tus-Resumable: 1.0.0' "$smoke_base_url/api/uploads/$1" | tr -d '\r' |
+    awk 'NR == 1 { status = $2 } tolower($1) == "upload-offset:" { offset = $2 } END { print status, offset }'
+}
 
 docker compose up -d --build --wait
 
@@ -88,29 +118,38 @@ echo 'Guest QR entry passed.'
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' |
   base64 --decode >"$smoke_photo_file"
 
-unauthenticated_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H 'Content-Type: image/png' --data-binary "@$smoke_photo_file" \
-  "$smoke_base_url/api/media/$smoke_photo_id")"
+unauthenticated_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+  -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $(file_size "$smoke_photo_file")" \
+  -H "Upload-Metadata: id $(tus_b64 "$smoke_photo_id"),filetype $(tus_b64 image/png)" \
+  "$smoke_base_url/api/uploads/")"
 if [[ "$unauthenticated_upload_status" != 401 ]]; then
-  echo "Unauthenticated photo upload returned HTTP $unauthenticated_upload_status; want 401." >&2
+  echo "Unauthenticated tus creation returned HTTP $unauthenticated_upload_status; want 401." >&2
   exit 1
 fi
 
-# Forward the cookie manually because the local smoke test uses HTTP and the cookie remains Secure.
-upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: image/png' \
-  --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_photo_id")"
+# Creation then one PATCH carrying every byte; the PATCH completes the upload with 204.
+upload_status="$(tus_create "$smoke_photo_id" "$(file_size "$smoke_photo_file")" image/png "$smoke_media_body")"
 if [[ "$upload_status" != 201 ]]; then
-  echo "Authenticated photo upload returned HTTP $upload_status; want 201." >&2
+  echo "Authenticated tus creation returned HTTP $upload_status; want 201." >&2
+  exit 1
+fi
+complete_status="$(tus_patch "$smoke_photo_id" 0 "$smoke_photo_file")"
+if [[ "$complete_status" != 204 ]]; then
+  echo "Authenticated photo PATCH returned HTTP $complete_status; want 204." >&2
   exit 1
 fi
 echo 'Authenticated photo upload passed.'
 
-retry_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: image/png' \
-  --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_photo_id")"
-if [[ "$retry_status" != 200 ]]; then
-  echo "Idempotent photo retry returned HTTP $retry_status; want 200." >&2
+# A retry of a confirmed upload: creation answers 409 already_confirmed and HEAD reports it complete.
+retry_status="$(tus_create "$smoke_photo_id" "$(file_size "$smoke_photo_file")" image/png "$smoke_media_body")"
+retry_body="$(cat "$smoke_media_body")"
+if [[ "$retry_status" != 409 || "$retry_body" != '{"error":"already_confirmed"}' ]]; then
+  echo "Idempotent photo retry returned HTTP $retry_status '$retry_body'; want 409 already_confirmed." >&2
+  exit 1
+fi
+read -r head_status head_offset <<<"$(tus_head "$smoke_photo_id")"
+if [[ "$head_status" != 200 || "$head_offset" != "$(file_size "$smoke_photo_file")" ]]; then
+  echo "HEAD of the confirmed upload returned '$head_status' at offset '$head_offset'; want 200 at the full length." >&2
   exit 1
 fi
 echo 'Idempotent photo retry passed.'
@@ -122,7 +161,7 @@ if [[ "$unauthenticated_gallery_status" != 401 ]]; then
 fi
 
 gallery_response="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media")"
-original_url="$(printf '%s' "$gallery_response" | grep -o '"original_url":"[^"]*"' | head -n 1 | cut -d '"' -f 4)"
+original_url="$(printf '%s' "$gallery_response" | grep -o '"original_url":"[^"]*"' | sed -n 1p | cut -d '"' -f 4)"
 if [[ "$gallery_response" != *"\"id\":\"$smoke_photo_id\""* || "$original_url" != /m/o/* ]]; then
   echo "Gallery did not list the uploaded photo with an original URL: $gallery_response" >&2
   exit 1
@@ -166,7 +205,7 @@ if [[ "$shell_cache" != 'no-cache' ]]; then
   echo "The HTML shell returned Cache-Control '$shell_cache'; want 'no-cache'." >&2
   exit 1
 fi
-asset_path="$(curl -fsS "$smoke_base_url/" | grep -o '/assets/index-[^"]*\.js' | head -n 1)"
+asset_path="$(curl -fsS "$smoke_base_url/" | grep -o '/assets/index-[^"]*\.js' | sed -n 1p)"
 asset_cache="$(curl -fsS -o /dev/null -D - "$smoke_base_url$asset_path" | tr -d '\r' |
   awk 'tolower($1) == "cache-control:" { $1 = ""; sub(/^ /, ""); print }')"
 if [[ -z "$asset_path" || "$asset_cache" != 'public, max-age=31536000, immutable' ]]; then
@@ -197,13 +236,44 @@ if [[ "$range_status" != '206 4' ]]; then
 fi
 echo 'Media Range request passed.'
 
+# Resume: send the first 20 bytes, read the offset back with HEAD, then send the rest from it.
+smoke_resume_id=123e4567-e89b-42d3-a456-426614174003
+head -c 20 "$smoke_photo_file" >"$smoke_resume_part"
+tail -c +21 "$smoke_photo_file" >"$smoke_resume_rest"
+resume_create_status="$(tus_create "$smoke_resume_id" "$(file_size "$smoke_photo_file")" image/png "$smoke_media_body")"
+if [[ "$resume_create_status" != 201 ]]; then
+  echo "Resumable creation returned HTTP $resume_create_status; want 201." >&2
+  exit 1
+fi
+first_status="$(tus_patch "$smoke_resume_id" 0 "$smoke_resume_part")"
+if [[ "$first_status" != 204 ]]; then
+  echo "First part PATCH returned HTTP $first_status; want 204." >&2
+  exit 1
+fi
+read -r head_status head_offset <<<"$(tus_head "$smoke_resume_id")"
+if [[ "$head_status" != 200 || "$head_offset" != 20 ]]; then
+  echo "HEAD after the first part returned '$head_status' at offset '$head_offset'; want 200 at offset 20." >&2
+  exit 1
+fi
+rest_status="$(tus_patch "$smoke_resume_id" "$head_offset" "$smoke_resume_rest")"
+if [[ "$rest_status" != 204 ]]; then
+  echo "Resumed PATCH from offset $head_offset returned HTTP $rest_status; want 204." >&2
+  exit 1
+fi
+gallery_after_resume="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media")"
+if [[ "$gallery_after_resume" != *"\"id\":\"$smoke_resume_id\""* ]]; then
+  echo 'The gallery does not list the resumed upload.' >&2
+  exit 1
+fi
+echo 'Resumable upload passed.'
+
 # A minimal HEIC signature is enough: the server checks the ftyp brand only.
 smoke_heic_id=123e4567-e89b-42d3-a456-426614174001
 printf '\000\000\000\030ftypheic\000\000\000\000mif1heic' >"$smoke_photo_file"
-heic_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H "Cookie: $guest_cookie" --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_heic_id")"
-if [[ "$heic_upload_status" != 201 ]]; then
-  echo "HEIC upload returned HTTP $heic_upload_status; want 201." >&2
+heic_create_status="$(tus_create "$smoke_heic_id" "$(file_size "$smoke_photo_file")" image/heic "$smoke_media_body")"
+heic_upload_status="$(tus_patch "$smoke_heic_id" 0 "$smoke_photo_file")"
+if [[ "$heic_create_status" != 201 || "$heic_upload_status" != 204 ]]; then
+  echo "HEIC upload returned HTTP $heic_create_status/$heic_upload_status; want 201 and 204." >&2
   exit 1
 fi
 heic_url="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media?limit=1" | grep -o '"original_url":"[^"]*"' | cut -d '"' -f 4)"
@@ -218,16 +288,15 @@ echo 'HEIC content type passed.'
 # deterministic payload makes the Range and byte-identity checks meaningful.
 smoke_video_id=123e4567-e89b-42d3-a456-426614174002
 { printf '\000\000\000\030ftypmp42\000\000\000\000mp42isom'; head -c 4096 /dev/zero | tr '\0' 'v'; } >"$smoke_photo_file"
-video_upload_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: video/mp4' --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_video_id")"
-if [[ "$video_upload_status" != 201 ]]; then
-  echo "Video upload returned HTTP $video_upload_status; want 201." >&2
+video_create_status="$(tus_create "$smoke_video_id" "$(file_size "$smoke_photo_file")" video/mp4 "$smoke_media_body")"
+video_upload_status="$(tus_patch "$smoke_video_id" 0 "$smoke_photo_file")"
+if [[ "$video_create_status" != 201 || "$video_upload_status" != 204 ]]; then
+  echo "Video upload returned HTTP $video_create_status/$video_upload_status; want 201 and 204." >&2
   exit 1
 fi
-video_retry_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H "Cookie: $guest_cookie" -H 'Content-Type: video/mp4' --data-binary "@$smoke_photo_file" "$smoke_base_url/api/media/$smoke_video_id")"
-if [[ "$video_retry_status" != 200 ]]; then
-  echo "Video retry returned HTTP $video_retry_status; want 200." >&2
+video_retry_status="$(tus_create "$smoke_video_id" "$(file_size "$smoke_photo_file")" video/mp4 "$smoke_media_body")"
+if [[ "$video_retry_status" != 409 ]]; then
+  echo "Video retry returned HTTP $video_retry_status; want 409 already_confirmed." >&2
   exit 1
 fi
 video_item="$(curl -fsS -H "Cookie: $guest_cookie" "$smoke_base_url/api/media?limit=1")"

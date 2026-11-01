@@ -15,10 +15,7 @@ import (
 // returns its storage name.
 func moderatedPhoto(t *testing.T, store *Store) string {
 	t.Helper()
-	media, err := store.SavePhoto(context.Background(), testID, 4, bytes.NewReader([]byte(jpegHeader+"o")))
-	if err != nil {
-		t.Fatal(err)
-	}
+	media := seedOriginal(t, store, testID, []byte(jpegHeader+"o"))
 	for _, variant := range []string{"t", "d"} {
 		body := []byte(jpegHeader + variant)
 		if _, err := store.SaveDerivative(context.Background(), testID, variant, int64(len(body)), bytes.NewReader(body)); err != nil {

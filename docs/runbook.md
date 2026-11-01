@@ -103,7 +103,7 @@ Para publicar solo con la IP (fase de pruebas, sin dominio): define en `.env` `B
 
 GitHub Actions ejecuta la verificación en cada push a `develop` o `main` y al publicar una release de GitHub. El flujo prueba, analiza y compila el backend; instala dependencias, prueba y genera la compilación de producción del frontend; y construye los objetivos Docker `app` y `web` para `linux/amd64` y `linux/arm64`.
 
-Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `develop`; los pushes a `main`, con la etiqueta mutable `rc`. Una release publicada genera etiquetas semver a partir de su tag (por ejemplo, `v1.0.0` genera `1.0.0`). Tras publicar las imágenes, un job independiente levanta la aplicación con Docker Compose y ejecuta `scripts/smoke.sh`: comprueba la API de salud, el HTML del frontend, la entrada QR de invitado, una subida PNG autenticada con su reintento idempotente, la galería, y el servido de medios por Caddy: `401` sin sesión, bytes idénticos, caché inmutable, `nosniff`, sin compresión, `?dl=1`, Range `206`, `Content-Type` de HEIC y `404` para rutas no publicadas. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa el mismo script; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto.
+Los pushes a `develop` publican las imágenes en GHCR con la etiqueta mutable `develop`; los pushes a `main`, con la etiqueta mutable `rc`. Una release publicada genera etiquetas semver a partir de su tag (por ejemplo, `v1.0.0` genera `1.0.0`). Tras publicar las imágenes, un job independiente levanta la aplicación con Docker Compose y ejecuta `scripts/smoke.sh`: comprueba la API de salud, el HTML del frontend, la entrada QR de invitado, una subida PNG autenticada por tus (creación, `PATCH` y reanudación desde `HEAD`) con su reintento idempotente (`409 already_confirmed`), la galería, y el servido de medios por Caddy: `401` sin sesión, bytes idénticos, caché inmutable, `nosniff`, sin compresión, `?dl=1`, Range `206`, `Content-Type` de HEIC y `404` para rutas no publicadas. Para ejecutar esa prueba localmente desde la raíz del repositorio, usa el mismo script; necesita Docker Compose y `curl`, y al terminar elimina los contenedores y volúmenes del proyecto.
 
 ## 2.2 Configuración
 
@@ -126,6 +126,7 @@ Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `
 | `BODA_MAX_DERIVATIVE_BYTES` | No | `8388608` | Límite de cada miniatura o detalle JPEG: 8 MiB. Por encima, `413 derivative_too_large` sin leer el cuerpo. |
 | `BODA_MAX_CONCURRENT_UPLOADS` | No | `30` | Por encima, 503 con `Retry-After`. |
 | `BODA_UPLOAD_IDLE_TIMEOUT` | No | `90s` | Plazo de inactividad, no de duración total. |
+| `BODA_UPLOAD_RESUME_TTL` | No | `24h` | Tiempo que se conserva una subida tus a medias sin actividad; después la conciliación la borra. Una subida con un `PATCH` en curso no caduca. |
 | `BODA_DISK_MIN_FREE_BYTES` | No | `16106127360` | 15 GB; por debajo se cortan las subidas automáticamente. |
 | `BODA_CLEANUP_INTERVAL` | No | `10m` | Intervalo de limpieza y conciliación. |
 | `BODA_STAGED_DERIVATIVE_TTL` | No | `24h` | Tiempo que se guardan miniaturas cuyo original nunca se confirma; después la conciliación las borra. |
@@ -168,7 +169,7 @@ Ambos comandos abren `data/boda.db` con WAL, espera de bloqueo de 5 segundos, `s
 | **T1** | Matriz de dispositivos | Un iPhone reciente y un Android de gama media y otro de gama baja: foto HEIC y JPEG, vídeo 4K HEVC (iPhone) y MP4 (Android). Subir, ver en el otro dispositivo, reproducir y descargar | Todas las miniaturas se generan. Cada vídeo se reproduce o, si no, ofrece la descarga. Orientación correcta. El original descargado es idéntico byte a byte (mismo hash) |
 | **T2** | Vídeo grande con 4G real (criterio de TUS) | 10 intentos de subir unos 300 MB desde el móvil con datos, a ser posible desde un sitio con mala cobertura | Menos del 30% de fallos, y los reintentos acaban completando la subida. Si no, se activa ADR-0005 y se pasa a TUS |
 | **T3** | 25 subidas lentas a la vez | 25 subidas en paralelo de 200–500 MB, limitadas a 2–5 Mbps cada una | Memoria de la aplicación y de Caddy **estable** y por debajo de 1 GB, sin crecer con el tamaño de los archivos. CPU media por debajo del 50%. Ninguna escritura sin `fsync` perdida. La API de galería responde en menos de 500 ms (p95) durante la prueba |
-| **T4** | Cortes y reintentos | Cortar el cliente al 50% (matar el proceso o cortar la red con `tc`) y reintentar con el mismo identificador. Otra vez, cortar la respuesta justo después de terminar | **Ningún duplicado**. `tmp/` vacío tras un ciclo de limpieza. El intento colgado no bloquea el reintento. Ningún registro se queda en `uploading` |
+| **T4** | Cortes y reintentos | Cortar la subida tus al 50% (matar el proceso o cortar la red con `tc`), consultar `HEAD` y reanudar desde el `Upload-Offset` con el mismo identificador. Otra vez, cortar la respuesta justo después de terminar | **Ningún duplicado**. La reanudación empieza en el offset que devuelve `HEAD`. Tras terminar, el reintento responde `409 already_confirmed` y `tmp/tus/` no conserva la subida. El intento colgado no bloquea el reintento. Ningún registro se queda en `uploading` |
 | **T5** | Carga mixta | T3 a la vez que 30 usuarios virtuales recorren la galería y 10 reproducen vídeos distintos saltando dentro de ellos | Todas las peticiones Range reciben 206 con el tamaño correcto. p95 de la API por debajo de 500 ms. Ningún error 5xx salvo los 503 deliberados por el límite de concurrencia |
 | **T6** | Reiniciar a mitad de subida | Reiniciar el contenedor `app` durante T3 | La aplicación arranca sola. La conciliación deja un estado coherente. Los clientes reintentan y completan. Caddy sigue sirviendo la galería mientras tanto |
 | **T7** | Disco lleno y ocultar | Subir el umbral de espacio libre por encima del espacio disponible. Ocultar un archivo y pedir su URL | Las subidas se desactivan automáticamente y las lecturas siguen. El archivo ocultado da 404 al instante y reaparece al volver a mostrarlo |
@@ -252,18 +253,18 @@ Estas pruebas reproducen en el servidor de QA las condiciones del evento: 25 sub
 
 - `summary.txt`: al menos 25 filas `put 201`. Explica cualquier 507, 503 o 5xx. La línea `STOP flag was set` indica un rechazo por espacio o por límite.
 - `readers.log`: los umbrales `bad_responses` (0 %) y `http_req_duration{name:gallery}` deben aparecer en ✓, y los rangos deben responder 206 con un `Content-Range` exacto.
-- `samples.csv`: `app_mem_mib + web_mem_mib` por debajo de 1024 MiB y sin crecer de forma continua; la media de `vm_us + vm_sy` por debajo de 50; `data_avail_mib` no debe bajar de `BODA_DISK_MIN_FREE_BYTES`; `tmp_entries` debe volver a 0.
+- `samples.csv`: `app_mem_mib + web_mem_mib` por debajo de 1024 MiB y sin crecer de forma continua; la media de `vm_us + vm_sy` por debajo de 50; `data_avail_mib` no debe bajar de `BODA_DISK_MIN_FREE_BYTES`; `tmp_entries` (entradas de `tmp/` sin contar `tmp/tus/`) debe volver a 0.
 - La p95 de la galería debe quedar por debajo de 500 ms.
 - `iostat.log` requiere el paquete `sysstat` en el servidor.
 
-**Reenvío tras la corrección T10:** con la corrección de los reintentos de subidas ya confirmadas, `LOAD_SLOW_RETRY=1` debe devolver 200 en el reenvío a través de Caddy. Si no lo hace, anótalo como fallo.
+**Reenvío tras la corrección T10:** con la corrección de los reintentos de subidas ya confirmadas, `LOAD_SLOW_RETRY=1` debe devolver `409 already_confirmed` en la segunda creación a través de Caddy. Si no lo hace, anótalo como fallo.
 
 ## Interruptor de subidas y administración desde el móvil
 
 `/admin` es la página de administración para el móvil, en español. Permite:
 
 - Iniciar sesión con la contraseña cuyo hash está en `BODA_ADMIN_PASSWORD_HASH`. El hash se genera con bcrypt (`htpasswd -nBC 12 ""`; de la salida, que tiene la forma `:<hash>`, usa solo el hash) o con argon2id. Los `$` del hash van entre comillas simples en `.env` y se escriben como `$$` en los archivos de Compose.
-- Pausar o reanudar las subidas con un interruptor. Con las subidas en pausa, `PUT` y los derivados responden `503 uploads_paused`; la galería sigue funcionando.
+- Pausar o reanudar las subidas con un interruptor. Con las subidas en pausa, `POST` y `PATCH` de `/api/uploads/` y los derivados responden `503 uploads_paused`; la galería sigue funcionando.
 - Ver el aviso de pausa automática por disco y el espacio libre y reservado, en GB.
 - Ver la lista **Ocultas** con sus miniaturas y volver a mostrar cualquiera con **Mostrar**.
 
@@ -315,19 +316,35 @@ El administrador puede fijar hasta cinco entradas de texto (horarios, avisos, un
 
 Los invitados pueden subir vídeo MP4, M4V y QuickTime MOV (se detectan por la firma `ftyp`, no por la extensión) de hasta `BODA_MAX_VIDEO_BYTES` (1,5 GB). El servidor no transcodifica: guarda y sirve el original con Range (`206`). El navegador del invitado captura un fotograma como portada (miniatura y detalle) y, si no puede decodificar el vídeo (por ejemplo HEVC fuera de Safari), sube solo el original y la galería muestra un marcador con el icono de reproducción. Si el navegador tampoco puede reproducirlo, el detalle ofrece la descarga del original.
 
-En el cliente, un vídeo se sube solo: espera a que terminen las subidas en curso y no empieza ninguna otra hasta que acaba. Los límites de espacio libre y de concurrencia son los mismos que para las fotos. Las pruebas T1 y T2 de la matriz (dispositivos reales y 4G) siguen siendo manuales y deben hacerse antes de imprimir el QR; `scripts/smoke.sh` cubre subida, reintento idempotente, tipo de contenido y Range de un MP4 sintético.
+En el cliente, un vídeo se sube solo: espera a que terminen las subidas en curso y no empieza ninguna otra hasta que acaba. Los límites de espacio libre y de concurrencia son los mismos que para las fotos. Las pruebas T1 y T2 de la matriz (dispositivos reales y 4G) siguen siendo manuales y deben hacerse antes de imprimir el QR; `scripts/smoke.sh` cubre la subida tus con reanudación desde `HEAD`, el reintento idempotente, el tipo de contenido y Range de un MP4 sintético.
 
 ## Conciliación del almacenamiento
 
 `boda serve` ejecuta una conciliación al arrancar y después cada `BODA_CLEANUP_INTERVAL` (10 minutos por defecto), según ADR-0009. Cada pasada:
 
 - Primero hace que la ubicación de los archivos siga la visibilidad de SQLite: si una ocultación o una restauración se interrumpió, mueve el original de un medio oculto a `hidden/` y sus derivados a `tmp/*.staged`, o devuelve a `originals/` el de un medio visible que quedó en `hidden/`. Los archivos de `hidden/` sin registro no se tocan ni van a `quarantine/`.
-- Borra los archivos parciales `tmp/*.part` abandonados. Nunca toca los de una subida en curso: se respeta el bloqueo por identificador que mantiene la subida.
+- Borra los archivos parciales `tmp/*.part` abandonados. Son restos de la subida directa anterior a tus, que ya no crea la aplicación. Las subidas tus a medias viven en `tmp/tus/` y se tratan aparte (ver abajo).
+- Borra las subidas tus pendientes sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 horas por defecto), salvo las que tienen un `PATCH` en curso. Nunca toca los archivos de una subida en curso: se respeta el bloqueo por identificador que mantiene la subida.
 - Publica en `derived/` las variantes que quedaron en `tmp/*.staged`, solo si su original está confirmado y visible. Las de originales ocultos o aún no confirmados siguen privadas.
 - Borra las variantes `tmp/*.staged` cuyo original nunca se confirmó, una vez pasado `BODA_STAGED_DERIVATIVE_TTL` (24 horas por defecto). Así `tmp/` no crece sin límite con miniaturas huérfanas.
 - Mueve a `quarantine/` los archivos de `originals/` sin registro en SQLite. **Nunca los borra**, y si el nombre ya existe en `quarantine/` añade un sufijo numérico en vez de sobrescribir. Se respeta el original que se está confirmando en ese momento.
 
-Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `removed_staged`, `skipped_active`, `visibility_repairs`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+Cada pasada deja en el log una línea `reconciled upload storage` con los recuentos (`removed_partials`, `quarantined`, `promoted_derivatives`, `removed_staged`, `expired_resumable`, `skipped_active`, `visibility_repairs`), y un error si algún archivo no se pudo tratar; el fallo de un archivo no detiene el resto de la pasada. Revisa `quarantine/` a mano antes del `rsync` final.
+
+### Subidas tus pendientes (`tmp/tus/`)
+
+Cada original que se está subiendo con tus (ADR-0014) ocupa `tmp/tus/` con dos archivos por identificador: `<id>`, con los bytes recibidos hasta ahora, y `<id>.info`, un JSON con los metadatos declarados. En `<id>.info`, `Size` es el tamaño declarado al crear la subida. Su campo `Offset` se escribe solo al crear la subida y no refleja el progreso: el progreso real es el tamaño del archivo `<id>`. Mientras una subida está pendiente, su espacio que falta (`Size` menos los bytes en disco) cuenta como reservado frente al mínimo libre, así que una subida a medias ocupa disco hasta que termina, se cancela o caduca.
+
+Para ver las subidas pendientes y su progreso:
+
+```bash
+ls -l tmp/tus                                  # <id> = bytes recibidos; <id>.info = metadatos
+grep -o '"Size":[0-9]*' tmp/tus/<id>.info      # tamaño declarado
+```
+
+Para descartar una subida a mano, con la aplicación parada, borra a la vez `tmp/tus/<id>` y `tmp/tus/<id>.info`. Con la aplicación en marcha, usa `DELETE /api/uploads/{id}` con una sesión de invitado válida, la misma operación que hace el cliente al cancelar. No borres `tmp/tus/` entero mientras la aplicación esté en marcha.
+
+Las subidas tus no se mueven a `quarantine/` ni se borran por ser huérfanas: la conciliación las trata como pendientes hasta que caducan.
 
 ## Copias de seguridad de SQLite
 

@@ -20,7 +20,11 @@ import (
 
 func TestGalleryRequiresGuestSessionAndListsConfirmedPhotos(t *testing.T) {
 	store, gallery := newHTTPGallery(t)
-	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, gallery)
+	resumable, err := store.Resumable(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(testEventToken, []byte(testSessionKey), store, 1, time.Second, 1024, gallery, WithResumable(resumable))
 	cookie := auth.NewGuestCookie([]byte(testSessionKey), time.Now())
 
 	unauthorized := httptest.NewRecorder()
@@ -38,11 +42,7 @@ func TestGalleryRequiresGuestSessionAndListsConfirmedPhotos(t *testing.T) {
 		t.Fatalf("gallery headers = %v; want no-store JSON", empty.Header())
 	}
 
-	uploaded := httptest.NewRecorder()
-	handler.ServeHTTP(uploaded, photoRequest(testMediaID, []byte{0xff, 0xd8, 0xff, 1}, cookie))
-	if uploaded.Code != http.StatusCreated {
-		t.Fatalf("photo upload status = %d; want 201", uploaded.Code)
-	}
+	seedOriginalViaTus(t, handler, testMediaID, []byte{0xff, 0xd8, 0xff, 1}, cookie)
 
 	listed := httptest.NewRecorder()
 	handler.ServeHTTP(listed, galleryRequest("?limit=1", cookie))
