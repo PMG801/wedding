@@ -90,6 +90,15 @@ describe('tus upload options', () => {
     )
   })
 
+  it('adds the capture time as captured_at metadata only when one was found', () => {
+    const { transport, uploads } = setup()
+    void transport({ id, file, capturedAt: '2026-10-18T18:30:15' }, () => {})
+    void transport(original, () => {})
+
+    expect(uploads[0].options.metadata).toEqual({ id, filetype: 'image/heic', captured_at: '2026-10-18T18:30:15' })
+    expect(uploads[1].options.metadata).toEqual({ id, filetype: 'image/heic' })
+  })
+
   it('sends 16 MiB chunks', () => {
     expect(TUS_CHUNK_SIZE).toBe(16 * 1024 * 1024)
   })

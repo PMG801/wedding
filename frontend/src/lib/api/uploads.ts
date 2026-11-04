@@ -42,7 +42,7 @@ export function createTusTransport({
   createUpload = defaultCreateUpload,
   stallTimeoutMs = UPLOAD_STALL_TIMEOUT_MS
 }: TusTransportOptions = {}): OriginalTransport {
-  return ({ id, file }, onProgress) =>
+  return ({ id, file, capturedAt }, onProgress) =>
     new Promise((resolve, reject) => {
       let settled = false
       let watchdog: ReturnType<typeof setTimeout> | undefined
@@ -66,7 +66,7 @@ export function createTusTransport({
       upload = createUpload(file, {
         endpoint: TUS_ENDPOINT,
         uploadUrl: `${TUS_ENDPOINT}${id}`,
-        metadata: { id, filetype: file.type },
+        metadata: capturedAt === undefined ? { id, filetype: file.type } : { id, filetype: file.type, captured_at: capturedAt },
         chunkSize: TUS_CHUNK_SIZE,
         retryDelays: null,
         storeFingerprintForResuming: false,
