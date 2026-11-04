@@ -102,9 +102,11 @@
 </nav>
 
 <style>
+  /* The top margin leaves room for the raised upload button; the dock lets taps through it. */
   .nav {
     box-sizing: border-box;
     height: 4.5rem;
+    margin-top: 1.5rem;
     background: var(--paper);
     border-top: 1px solid var(--line);
     box-shadow: 0 -2px 10px rgb(47 42 38 / 0.06);
@@ -182,26 +184,39 @@
     transition: transform 220ms ease-out;
   }
 
+  /* Uploading is the main action: a large circle raised above the bar. */
   .plus {
     display: grid;
     place-items: center;
-    width: 2.25rem;
-    height: 2.25rem;
+    box-sizing: border-box;
+    width: 4.25rem;
+    height: 4.25rem;
+    margin-top: -1.75rem;
+    border: 4px solid var(--paper);
     border-radius: 50%;
-    background: var(--sage);
+    background: linear-gradient(145deg, var(--sage), var(--sage-dark));
     color: #fff;
-    box-shadow: 0 2px 6px rgb(86 108 75 / 0.35);
+    box-shadow:
+      0 6px 16px rgb(86 108 75 / 0.45),
+      0 1px 3px rgb(47 42 38 / 0.2);
+    transition: transform 120ms ease-out;
   }
 
   .plus svg {
-    width: 1.6rem;
-    height: 1.6rem;
-    stroke-width: 2.2;
+    width: 2.1rem;
+    height: 2.1rem;
+    stroke-width: 2.4;
   }
 
   .upload {
+    min-width: 5rem;
     color: var(--sage-dark);
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .upload:active .plus {
+    transform: scale(0.94);
   }
 
   .tab:focus-visible,
@@ -216,7 +231,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .indicator.animate {
+    .indicator.animate,
+    .plus {
       transition: none;
     }
   }

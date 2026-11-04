@@ -309,5 +309,11 @@
     right: 0;
     bottom: 0;
     z-index: 20;
+    /* The room above the raised upload button stays transparent to taps on the gallery. */
+    pointer-events: none;
+  }
+
+  .dock > :global(*) {
+    pointer-events: auto;
   }
 </style>
