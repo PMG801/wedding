@@ -1,5 +1,5 @@
--- Capture time of each medium (ADR-0014): the local wall-clock moment the photo
--- or video was taken, sent by the client in X-Captured-At as YYYY-MM-DDTHH:MM:SS.
+-- Capture time of each medium (ADR-0015): the local wall-clock moment the photo
+-- or video was taken, sent by the client in the captured_at tus metadata as YYYY-MM-DDTHH:MM:SS.
 -- NULL when the client could not read it; such media never enter the carousel
 -- and never fall back to the file modification time. Existing rows stay NULL.
 -- The CHECK validates the shape only; calendar validity is checked by the

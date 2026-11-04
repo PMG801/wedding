@@ -18,7 +18,7 @@ import (
 // ErrPeriodNotFound reports an album request for a period that is not configured.
 var ErrPeriodNotFound = errors.New("carousel period not found")
 
-// Period is one configured carousel window (ADR-0014). Start and End are
+// Period is one configured carousel window (ADR-0015). Start and End are
 // YYYY-MM-DDTHH:MM in event local time; the window is half-open: [Start, End).
 type Period struct {
 	ID    int

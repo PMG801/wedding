@@ -1,4 +1,4 @@
-# ADR-0014 · Carrusel por hora de captura: periodos desde variables de entorno y selección por ranura
+# ADR-0015 · Carrusel por hora de captura: periodos desde variables de entorno y selección por ranura
 
 - **Estado:** Aceptado
 - **Contexto:**
@@ -9,7 +9,7 @@
   - Una foto sin metadata no debe rechazarse: se pierde un recuerdo por un dato accesorio.
 - **Decisión:**
   - **D1 · Hora de captura en el cliente.** El navegador extrae la hora local de captura antes de subir: `DateTimeOriginal` de EXIF (o `DateTimeDigitized` si falta) en JPEG y HEIC, y la fecha de creación de `mvhd` en MP4 y MOV, convertida con la zona horaria del dispositivo (una época 0 o 1904 cuenta como ausente). Nunca se usa `File.lastModified`.
-  - **D2 · Formato y cabecera.** La hora es una cadena `YYYY-MM-DDTHH:MM:SS` sin zona. `PUT /api/media/{id}` la recibe en la cabecera opcional `X-Captured-At`. Se acepta solo si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Cualquier otro valor (ausente, mal formado o imposible) se ignora: la subida sigue con el mismo código que sin cabecera y la columna queda `NULL`.
+  - **D2 · Formato y metadato tus.** La hora es una cadena `YYYY-MM-DDTHH:MM:SS` sin zona. `POST /api/uploads/` la recibe en el metadato opcional `captured_at` de `Upload-Metadata` (ADR-0014) y se guarda al publicar el original. Se acepta solo si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Cualquier otro valor (ausente, mal formado o imposible) se ignora: la subida sigue con el mismo código que sin el metadato y la columna queda `NULL`.
   - **D3 · Reintentos.** Un identificador ya confirmado responde igual que hoy y nunca cambia `captured_at`: el valor se fija en la primera confirmación.
   - **D4 · Almacenamiento.** La migración `0004_media_captured_at.sql` añade `media.captured_at TEXT NULL`, con un `CHECK` de la forma y un índice parcial sobre `(captured_at, id)` para medios visibles con hora. Las filas existentes quedan en `NULL` y nunca entran en el carrusel.
   - **D5 · Periodos desde el entorno.** `BODA_PERIOD_<n>_START` y `BODA_PERIOD_<n>_END`, con `n = 1, 2, …` consecutivos y el valor `YYYY-MM-DDTHH:MM` en hora local del evento. El intervalo es `[START, END)`. Un `START` o `END` suelto, un valor mal formado, `START ≥ END` o un hueco en la numeración impiden arrancar. El error nombra la variable, nunca su valor. Sin periodos, la función está apagada: `GET /api/carousels` responde una lista vacía.

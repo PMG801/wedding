@@ -10,7 +10,7 @@ import (
 	"github.com/PMG801/wedding/internal/media"
 )
 
-// carouselReader serves the story strip and the period albums (ADR-0014).
+// carouselReader serves the story strip and the period albums (ADR-0015).
 type carouselReader interface {
 	Strip(ctx context.Context, guestID string) (media.Strip, error)
 	Album(ctx context.Context, guestID string, periodID int, cursor string, limit int) (media.Page, error)
