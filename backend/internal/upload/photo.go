@@ -160,8 +160,9 @@ func (s *Store) checkMediaType(header []byte, size int64) (PhotoType, error) {
 // the complete file at partPath, syncs it, moves it into originals under its
 // chronological name, syncs the directory and confirms it in SQLite. The caller holds the ID lock. A failure before the move
 // leaves partPath in place. A failure after it moves the file back, so the
-// complete upload survives for a retry.
-func (s *Store) publishPart(ctx context.Context, id, partPath string, declaredSize int64) (Media, error) {
+// complete upload survives for a retry. capturedAt is the raw captured_at
+// metadata (ADR-0015): stored only when NormalizeCapturedAt accepts it, else NULL.
+func (s *Store) publishPart(ctx context.Context, id, partPath string, declaredSize int64, capturedAt string) (Media, error) {
 	photoType, err := s.checkPart(partPath, declaredSize)
 	if err != nil {
 		return Media{}, err
@@ -179,7 +180,11 @@ func (s *Store) publishPart(ctx context.Context, id, partPath string, declaredSi
 		return Media{}, fmt.Errorf("sync originals directory: %w", err)
 	}
 	media := Media{ID: id, StorageName: storageName, MIME: photoType.MIME, Visibility: "visible", SizeBytes: declaredSize, ConfirmedAt: now.UnixMilli()}
-	if _, err := s.db.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at) VALUES (?, ?, ?, ?, ?)", media.ID, media.StorageName, media.MIME, media.SizeBytes, media.ConfirmedAt); err != nil {
+	var captured sql.NullString
+	if value, ok := NormalizeCapturedAt(capturedAt); ok {
+		captured = sql.NullString{String: value, Valid: true}
+	}
+	if _, err := s.db.ExecContext(ctx, "INSERT INTO media (id, storage_name, media_type, size_bytes, confirmed_at, captured_at) VALUES (?, ?, ?, ?, ?, ?)", media.ID, media.StorageName, media.MIME, media.SizeBytes, media.ConfirmedAt, captured); err != nil {
 		restore()
 		return Media{}, fmt.Errorf("confirm photo in database: %w", err)
 	}
