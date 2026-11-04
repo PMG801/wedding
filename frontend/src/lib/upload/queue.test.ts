@@ -289,6 +289,51 @@ describe('UploadQueue', () => {
     expect(log).toEqual(['start p1.jpg while []', 'start p2.jpg while [p1.jpg]', 'start v.mp4 while []', 'start p3.jpg while []'])
   })
 
+  describe('capture time (captured_at tus metadata)', () => {
+    it('sends the found capture time with the original only', async () => {
+      const { queue, originals, requests } = setup({ captureTime: async () => '2026-10-18T18:30:15' })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+
+      expect(originals).toEqual([{ id: '00000000-0000-4000-8000-000000000001', file: expect.any(File), capturedAt: '2026-10-18T18:30:15' }])
+      expect(requests).toHaveLength(2)
+      expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done' }))
+    })
+
+    it('sends no capture time when none was found', async () => {
+      const { queue, originals } = setup({ captureTime: async () => null })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+
+      expect(originals[0]).not.toHaveProperty('capturedAt')
+      expect(queue.items[0].status).toBe('done')
+    })
+
+    it('still uploads when reading the capture time fails', async () => {
+      const { queue, originals } = setup({ captureTime: () => Promise.reject(new Error('corrupt file')) })
+      queue.add([photo('a.jpg')])
+      await queue.idle()
+
+      expect(originals[0]).not.toHaveProperty('capturedAt')
+      expect(queue.items[0]).toEqual(expect.objectContaining({ status: 'done', errorCode: null }))
+    })
+
+    it('stops waiting for a stalled read and uploads without a capture time', async () => {
+      vi.useFakeTimers()
+      try {
+        const { queue, originals } = setup({ captureTime: () => new Promise<string | null>(() => {}) })
+        queue.add([photo('a.jpg')])
+        await vi.advanceTimersByTimeAsync(3_000)
+        await queue.idle()
+
+        expect(originals[0]).not.toHaveProperty('capturedAt')
+        expect(queue.items[0].status).toBe('done')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   describe('backoff jitter', () => {
     /** Runs one photo that fails once with the given response, and returns the single delay used. */
     async function firstDelay(random: () => number, response: UploadResponse): Promise<number> {

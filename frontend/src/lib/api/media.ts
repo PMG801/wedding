@@ -20,6 +20,8 @@ export type UploadTransport = (request: UploadRequest, onProgress: (sentBytes: n
 export interface OriginalUpload {
   id: string
   file: File
+  /** Local capture time `YYYY-MM-DDTHH:MM:SS` read from the file; absent when none was found. */
+  capturedAt?: string
 }
 
 /**
@@ -166,12 +168,16 @@ export async function fetchGalleryPage({
   if (response.status === 401) throw new GuestSessionRequiredError()
   if (!response.ok) throw new Error(`Gallery request failed with HTTP ${response.status}`)
 
-  const body: unknown = await response.json()
+  return parseGalleryPage(await response.json(), 'Gallery response has an invalid shape')
+}
+
+/** Parses a `{items, next_cursor}` page: GET /api/media and GET /api/carousels/{id} share this shape. */
+export function parseGalleryPage(body: unknown, invalidMessage: string): GalleryPage {
   if (!isRecord(body) || !Array.isArray(body.items) || !isNullableString(body.next_cursor)) {
-    throw new Error('Gallery response has an invalid shape')
+    throw new Error(invalidMessage)
   }
   return {
-    items: body.items.map((raw) => parseGalleryItem(raw, 'Gallery response has an invalid shape')),
+    items: body.items.map((raw) => parseGalleryItem(raw, invalidMessage)),
     nextCursor: body.next_cursor
   }
 }
@@ -211,7 +217,8 @@ export async function setLike(id: string, liked: boolean, fetchFn: typeof fetch 
   return { id: body.id, likeCount: body.like_count, likedByMe: body.liked_by_me }
 }
 
-function parseGalleryItem(raw: unknown, invalidMessage: string): GalleryItem {
+/** Parses one medium of the gallery shape; `invalidMessage` names the response it came from. */
+export function parseGalleryItem(raw: unknown, invalidMessage: string): GalleryItem {
   if (
     !isRecord(raw) ||
     typeof raw.id !== 'string' ||

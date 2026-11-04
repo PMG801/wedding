@@ -38,6 +38,11 @@ export interface UploadQueueOptions {
   /** Sends originals through tus (ADR-0014). Called once per attempt; a retry resumes. */
   originalTransport: OriginalTransport
   makeDerivatives: (file: File) => Promise<Derivatives | null>
+  /**
+   * Reads the capture time before the original goes up (S2). Null, a failure or a stall
+   * means none is sent. The default finds nothing; the app passes the real reader.
+   */
+  captureTime?: (file: File) => Promise<string | null>
   newId?: () => string
   sleep?: (ms: number) => Promise<void>
   onChange?: (items: readonly UploadItem[]) => void
@@ -67,6 +72,9 @@ interface Step {
   send: Attempt
 }
 
+/** Longest wait for the capture time before the original goes up without it. */
+const CAPTURE_TIME_TIMEOUT_MS = 3_000
+
 class UploadFailure extends Error {
   constructor(readonly code: UploadErrorCode) {
     super(code)
@@ -89,6 +97,7 @@ export class UploadQueue {
   constructor(options: UploadQueueOptions) {
     this.#options = {
       newId: () => crypto.randomUUID(),
+      captureTime: async () => null,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       concurrency: 2,
       maxRetries: 5,
@@ -178,7 +187,10 @@ export class UploadQueue {
     const item = this.#items.find((candidate) => candidate.id === id)!
     const file = this.#files.get(id)!
     this.#update(item, { status: 'preparing' })
-    const derivatives = await this.#options.makeDerivatives(file).catch(() => null)
+    const [derivatives, capturedAt] = await Promise.all([
+      this.#options.makeDerivatives(file).catch(() => null),
+      captureTimeWithin(file, this.#options.captureTime, CAPTURE_TIME_TIMEOUT_MS)
+    ])
 
     const steps: Step[] = []
     if (derivatives !== null) {
@@ -194,7 +206,8 @@ export class UploadQueue {
     steps.push({
       size: file.size,
       optional: false,
-      send: (onProgress) => this.#options.originalTransport({ id, file }, onProgress)
+      send: (onProgress) =>
+        this.#options.originalTransport(capturedAt === null ? { id, file } : { id, file, capturedAt }, onProgress)
     })
     const totalBytes = steps.reduce((sum, step) => sum + step.size, 0)
     this.#update(item, { status: 'uploading', usedFallback: derivatives === null })
@@ -256,6 +269,26 @@ export class UploadQueue {
 
   #emit(): void {
     this.#options.onChange?.(this.items)
+  }
+}
+
+/**
+ * Reads the capture time, or null when the read fails or stalls past the timeout.
+ * A photo is never held back for its metadata.
+ */
+async function captureTimeWithin(
+  file: File,
+  read: (file: File) => Promise<string | null>,
+  timeoutMs: number
+): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const stalled = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs)
+  })
+  try {
+    return await Promise.race([Promise.resolve().then(() => read(file)).catch(() => null), stalled])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
