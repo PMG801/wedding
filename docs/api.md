@@ -108,7 +108,7 @@ Protocolo [tus 1.0.0](https://tus.io/protocols/resumable-upload) con las extensi
 
 **`POST /api/uploads/` — crear la subida.** Exige `Upload-Length` positivo y el metadato `id` en `Upload-Metadata` (UUIDv4 canónico en minúsculas, en base64 como manda tus); `filetype` es opcional e informativo. El identificador de la subida es el del medio.
 
-La cabecera opcional `X-Captured-At` lleva la hora local de captura de la foto o el vídeo en el formato `YYYY-MM-DDTHH:MM:SS`, sin zona horaria, tal como la extrae el cliente de los metadatos (ADR-0014). Solo se guarda si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Si falta, está mal formada o es imposible, la subida no cambia: responde el mismo código que sin la cabecera y la hora queda sin guardar (`NULL`), de modo que ese medio no entra en el carrusel. Un reintento de un identificador ya confirmado nunca cambia la hora guardada.
+El metadato opcional `captured_at` de `Upload-Metadata` lleva la hora local de captura de la foto o el vídeo en el formato `YYYY-MM-DDTHH:MM:SS`, sin zona horaria, tal como la extrae el cliente de los metadatos del archivo (ADR-0015). Se guarda al publicar el original solo si tiene esa forma exacta, es una fecha real y el año está entre 2000 y 2100. Si falta, está mal formado o es imposible, la subida no cambia: responde los mismos códigos que sin el metadato y la hora queda sin guardar (`NULL`), de modo que ese medio no entra en el carrusel. Un medio ya confirmado nunca cambia la hora guardada.
 
 | Estado | Significado y respuesta |
 | --- | --- |

@@ -59,11 +59,11 @@ El límite de cinco entradas y la reescritura del orden (`position`) no se puede
 
 ## Migración `0004_media_captured_at.sql`
 
-Añade la hora de captura de cada medio (ADR-0014). No crea tablas ni cambia `media_likes`, `pinned_items` ni `settings`.
+Añade la hora de captura de cada medio (ADR-0015). No crea tablas ni cambia `media_likes`, `pinned_items` ni `settings`.
 
 | Tabla y columna | Tipo / restricción | Significado |
 |---|---|---|
-| `media.captured_at` | `TEXT NULL`, `CHECK`: `NULL` o la forma `YYYY-MM-DDTHH:MM:SS` | Hora local de captura de la foto o el vídeo, sin zona horaria, tal como la envía el cliente en `X-Captured-At`. `NULL` si el cliente no la obtuvo o la cabecera no era válida. |
+| `media.captured_at` | `TEXT NULL`, `CHECK`: `NULL` o la forma `YYYY-MM-DDTHH:MM:SS` | Hora local de captura de la foto o el vídeo, sin zona horaria, tal como la envía el cliente en el metadato tus `captured_at`. `NULL` si el cliente no la obtuvo o el valor no era válido. |
 
 El `CHECK` valida solo la forma (19 caracteres y el patrón de dígitos). La fecha real y el rango de años (2000 a 2100) los comprueba la aplicación antes de escribir; un valor no válido se guarda como `NULL` y nunca falla la subida. Las filas existentes quedan en `NULL` y no entran en el carrusel. La migración no rellena la hora desde la fecha de modificación del archivo.
 

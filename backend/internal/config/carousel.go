@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Period is one carousel time window from BODA_PERIOD_<n>_START/END (ADR-0014).
+// Period is one carousel time window from BODA_PERIOD_<n>_START/END (ADR-0015).
 // Start and End hold the configured YYYY-MM-DDTHH:MM values in event local time;
 // the window is half-open: [Start, End).
 type Period struct {
