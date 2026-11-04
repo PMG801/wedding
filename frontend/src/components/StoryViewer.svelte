@@ -14,15 +14,12 @@
     items,
     label,
     onClose,
-    onAlbum,
     onEnd,
     start = 0
   }: {
     items: GalleryItem[]
     label: string
     onClose: () => void
-    /** Present for the strip: opens the period's full album. */
-    onAlbum?: () => void
     /** Called past the last item; the strip closes, the album loads its next page. */
     onEnd?: () => void
     start?: number
@@ -81,12 +78,6 @@
   onFramePointerDown={onPointerDown}
   onFramePointerUp={onPointerUp}
 >
-  {#snippet topStart()}
-    {#if onAlbum !== undefined}
-      <button class="button small ghost" type="button" onclick={onAlbum}>{copy.carousel.viewAlbum}</button>
-    {/if}
-  {/snippet}
-
   {#if item !== undefined}
     {#if isVideoItem(item)}
       {#key item.id}

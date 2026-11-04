@@ -17,7 +17,7 @@
   import { GalleryFeed, type GalleryFeedState, type GalleryView } from '../lib/gallery/feed'
   import { swipeDirection, viewAfterSwipe } from '../lib/gallery/swipe'
   import { adoptDeepLink, closeViewer, moveViewer, openViewer } from '../lib/gallery/history'
-  import { albumHash, parseRoute, photoHash, storyHash, type Route } from '../lib/gallery/view'
+  import { parseRoute, photoHash, storyHash, type Route } from '../lib/gallery/view'
   import { createMediaDerivatives } from '../lib/media/poster'
   import { UploadQueue, type UploadItem } from '../lib/upload/queue'
 
@@ -152,12 +152,6 @@
     route = parseRoute(location.hash)
   }
 
-  /** From a story, the album replaces the story entry: back from the album returns home. */
-  function openAlbum(id: number) {
-    moveViewer(history, albumHash(id))
-    route = parseRoute(location.hash)
-  }
-
   /** Closes a story or the album: back when the app pushed the entry, otherwise home in place. */
   function closeOverlay() {
     if (route.name !== 'story' && route.name !== 'album') return
@@ -259,7 +253,6 @@
       items={storyPeriod.items}
       label={periodLabel(storyPeriod.start, storyPeriod.end) ?? copy.carousel.heading}
       onClose={closeStory}
-      onAlbum={() => openAlbum(storyPeriod.id)}
     />
   {/await}
 {/if}
