@@ -236,7 +236,7 @@ func (s *Store) finishResumable(ctx context.Context, id string) (Media, error) {
 	if err != nil {
 		return Media{}, err
 	}
-	media, err := s.publishPart(ctx, id, s.resumableBinPath(id), info.Size)
+	media, err := s.publishPart(ctx, id, s.resumableBinPath(id), info.Size, info.MetaData["captured_at"])
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedPhoto) || errors.Is(err, ErrPhotoTooLarge) || errors.Is(err, ErrVideoTooLarge) {
 			s.removeResumable(id)
