@@ -23,6 +23,7 @@ This is a wedding photo/video upload app. Before making architectural or operati
 ## Git and delivery
 
 - `develop` is the integration branch. Use feature branches `feat/*`, `chore/*`, or `fix/*`; open pull requests into `develop`.
+- Always create the branch from an up-to-date `develop`, never from `main` or another feature branch, and never commit directly to `develop` or `main`. Check `git branch --show-current` before the first edit.
 - Use Conventional Commits. Make one work-unit commit per task, keeping its tests and documentation with the change.
 - Never push or merge without the user's explicit instruction.
 - Keep a review around 400 changed lines or fewer. Split larger work according to the chained-PR skill.
