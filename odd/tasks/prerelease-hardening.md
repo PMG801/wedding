@@ -12,6 +12,11 @@ Each task is its own branch from `develop` (`fix/*` or `chore/*`), one work-unit
 - **S5** Caddy sends security headers on the SPA and the API: `Content-Security-Policy` (`default-src 'self'`, images and media from `'self'`, `data:` and `blob:`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`), `Strict-Transport-Security` with a short `max-age` and no `includeSubDomains` or `preload`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`. The app must keep working under that CSP.
 - **S6** The primary button reaches WCAG AA contrast: white text on `--sage` is 3.31:1 and must be at least 4.5:1.
 - **S7** Dependencies: `golang.org/x/crypto` to `v0.56.0`; `npm audit fix` without `--force`; `vitest@5` is not part of this.
+- **S8** Frontend styles follow one set of tokens. No colour literal (`#fff`, `rgb(...)`) in component styles outside the `:root` tokens of `src/app.css`; every `font-size` in components uses a type-scale token (`--text-xs` at least 0.75rem, so nothing below 12 px); every `z-index` uses a token that keeps today's value and order. Sizes snap to the nearest scale step (at most 0.06rem change below 1.1rem, at most 0.1rem above).
+- **S9** One global `:focus-visible` ring in `src/app.css` covers every focusable element; surfaces with a dark background (the lightbox, story viewer) use a light ring. One global `prefers-reduced-motion: reduce` rule disables animations and transitions for everything.
+- **S10** `.button.small` is at least 44 px (2.75rem) tall.
+- **S11** `cd frontend && npm run check` runs `svelte-check` and passes with 0 errors.
+- **S12** Backend small fixes: `errors.Is(err, http.ErrServerClosed)` instead of `==`; the Dockerfile copies `go.mod` and `go.sum` before `go mod download`. (The earlier note about an "empty report" after a failed `Reconcile` was wrong: the report keeps the partial counts, so that log line stays.)
 
 ## Tasks
 
@@ -22,6 +27,10 @@ Each task is its own branch from `develop` (`fix/*` or `chore/*`), one work-unit
 - [x] **T5** (S7) Dependency updates. Inline. Branch `chore/dependency-updates`. `vite` 6.4.5 via `npm audit fix` (0 production vulnerabilities, 287 tests, build, svelte-check). **Deviation:** `golang.org/x/crypto` v0.56.0 requires Go 1.26 (`go get` rewrote `go 1.25.14` to `go 1.26.0`); the project builds with Go 1.25, so it was reverted. The advisory GO-2026-6355 is in `x/crypto/ssh`, which the code does not call. Needs a decision: move the project to Go 1.26 (go.mod, Dockerfile, CI). Commit: `9832739`.
 - [x] **T6** Notes and branch rule. `docs/revision-prerelease.md` was already in `develop` (committed by the user as `f8cda0b`). This file and an explicit branch line in `AGENTS.md`. Branch `chore/prerelease-review-notes`. Commits: `46c5d13` (AGENTs), this file in the next commit.
 
+- [ ] **T7** (S8, S9, S10, S11) Frontend style consistency. Delegated writer in worktree `.worktrees/frontend-style`, branch `chore/frontend-style-consistency`; tests first (structural tests over `src/**/*.svelte` and `app.css`). Commit: —
+- [ ] **T8** (S12) Backend small fixes. Inline. Branch `chore/backend-small-fixes`. Commit: —
+- [ ] **T9** Integration check before the release: merge every branch into a scratch worktree (not `develop`), run backend and frontend checks, build both images and `scripts/smoke.sh`. Commit: none (scratch).
+
 ## Log
 
 - **L1** (user) "Ya tengo las funcionalidades que buscaba. revisa en general el proyecto en busca de fallos mejoras etc. Antes de sacar la release, vulnerabilidades malas practicas. Apunta para una futura implementacion en el cicd meter un sonar o una herramienta de ese estilo. Y para la parte de front un repaso del estilo que este bien puesto en todas las partes y que siga las buenas practicas"
@@ -29,3 +38,5 @@ Each task is its own branch from `develop` (`fix/*` or `chore/*`), one work-unit
 - **L3** (user) "Ejecuta, lo que mas me importa es el tema del espacio, ya que esto va a correr en una maquina donde hay un solo disco por lo que la data y el SO van a compartir disco y si se llena la maquina se jode y cuesta mas de recuperar. Recuerda el tema de trabaajr en una rama que salga de develop (no me acuerdo si esta en las instrucciones del proyecto, pero si no esta ponlo)"
 - **L4** (parent) Audit result: disk admission (`MinFreeBytes` plus reservations) already stops the disk from filling past the threshold. What remains is availability: zero-byte reservations (24 h) and unbounded staged derivatives can exhaust the admission budget and pause uploads for everyone. S1-S3 close that.
 - **L5** (parent) Verifier defects left open, all low: D1 a derivative is counted twice between its rename and the deferred decrement (one spurious 503 at cap-1, never over the cap); D2 `os.ReadDir(tmp)` runs under the ledger mutex; D4 (pre-existing) a PATCH on an expired upload gets tusd's plain-text 404, not the app's JSON. D3 (`.env.example` keys commented out) was fixed before the commit.
+- **L6** (user) "Acaba todas las tareas pendientes que quiero sacar release"
+- **L7** (parent) Scope read as: finish the open review items (frontend style, minor code) and prove the whole set works together. Not authorized: push, pull request, merge, tag or release; and the Go 1.26 move (S7 deviation) stays a user decision.
