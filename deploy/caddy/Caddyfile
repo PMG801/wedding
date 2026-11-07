@@ -26,6 +26,17 @@
 }
 
 {$BODA_DOMAIN:localhost} {
+    # Security headers for every response, including errors. The CSP allows only
+    # this origin: the app has no inline scripts or styles, thumbnails are made
+    # in a canvas and videos play from blob: URLs. HSTS is deliberately short
+    # and without includeSubDomains or preload, because browsers remember it.
+    header {
+        Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        Strict-Transport-Security "max-age=604800"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+
     handle /api/* {
         encode gzip zstd
         reverse_proxy app:8080

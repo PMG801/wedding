@@ -205,6 +205,19 @@ if [[ "$shell_cache" != 'no-cache' ]]; then
   echo "The HTML shell returned Cache-Control '$shell_cache'; want 'no-cache'." >&2
   exit 1
 fi
+# Security headers reach the HTML shell, the API and error responses alike.
+for header_url in / /api/health /missing-api-check/assets/x; do
+  header_dump="$(curl -sS -o /dev/null -D - "$smoke_base_url$header_url" | tr -d '\r')"
+  for wanted in "content-security-policy: default-src 'self'" 'strict-transport-security: max-age=' 'x-content-type-options: nosniff' 'referrer-policy: no-referrer'; do
+    if ! grep -qi "^$wanted" <<<"$header_dump"; then
+      echo "$header_url is missing the security header '$wanted'." >&2
+      exit 1
+    fi
+  done
+done
+grep -qi "frame-ancestors 'none'" <<<"$header_dump" || { echo "The CSP lacks frame-ancestors 'none'." >&2; exit 1; }
+echo 'Security headers passed.'
+
 asset_path="$(curl -fsS "$smoke_base_url/" | grep -o '/assets/index-[^"]*\.js' | sed -n 1p)"
 asset_cache="$(curl -fsS -o /dev/null -D - "$smoke_base_url$asset_path" | tr -d '\r' |
   awk 'tolower($1) == "cache-control:" { $1 = ""; sub(/^ /, ""); print }')"
