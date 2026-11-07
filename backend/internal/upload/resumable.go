@@ -175,7 +175,14 @@ func (c resumableCore) NewUpload(ctx context.Context, info handler.FileInfo) (ha
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("check pending upload: %w", err)
 	}
-	if err := s.admitLocked(info.Size); err != nil {
+	pendingBytes, pendingCount, err := s.pendingResumableBytes()
+	if err != nil {
+		return nil, err
+	}
+	if limit := s.options.MaxPendingUploads; limit > 0 && pendingCount >= limit {
+		return nil, jsonHTTPErrorRetry(http.StatusServiceUnavailable, "too_many_pending_uploads", retryAfterSeconds)
+	}
+	if err := s.admitReservedLocked(info.Size, s.withLedgerReserved(pendingBytes)); err != nil {
 		if errors.Is(err, ErrInsufficientStorage) {
 			return nil, jsonHTTPError(http.StatusInsufficientStorage, "insufficient_storage")
 		}
@@ -283,14 +290,16 @@ func readResumableInfo(path string) (handler.FileInfo, error) {
 }
 
 // pendingResumableBytes sums, over every pending upload in tmp/tus, the declared
-// bytes not yet on disk. Callers hold ledger.mu. A record without its data file
-// (a leftover of a finished upload) reserves nothing.
-func (s *Store) pendingResumableBytes() (uint64, error) {
+// bytes not yet on disk, and counts those uploads, in one scan. Callers hold
+// ledger.mu. A record without its data file (a leftover of a finished upload)
+// reserves nothing and is not counted.
+func (s *Store) pendingResumableBytes() (uint64, int, error) {
 	entries, err := os.ReadDir(s.paths.Tus)
 	if err != nil {
-		return 0, fmt.Errorf("list resumable uploads: %w", err)
+		return 0, 0, fmt.Errorf("list resumable uploads: %w", err)
 	}
 	var total uint64
+	count := 0
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".info") {
@@ -306,15 +315,16 @@ func (s *Store) pendingResumableBytes() (uint64, error) {
 		if err != nil {
 			continue
 		}
+		count++
 		if info.Size > stat.Size() {
 			total += uint64(info.Size - stat.Size())
 		}
 	}
-	return total, nil
+	return total, count, nil
 }
 
 // expireResumable removes pending uploads whose newest file is older than
-// UploadResumeTTL. It skips an ID with a PATCH in flight, or whose ID lock is busy.
+// UploadResumeTTL (EmptyUploadTTL when no byte arrived, if shorter). It skips an ID with a PATCH in flight, or whose ID lock is busy.
 func (s *Store) expireResumable(ctx context.Context, report *ReconcileReport) error {
 	if s.options.UploadResumeTTL <= 0 {
 		return nil
@@ -358,17 +368,25 @@ func (s *Store) expireResumableID(id string, report *ReconcileReport) error {
 	}
 	var newest time.Time
 	found := false
+	var stored int64
 	for _, path := range []string{s.resumableBinPath(id), s.resumableInfoPath(id)} {
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
 		}
 		found = true
+		if path == s.resumableBinPath(id) {
+			stored = info.Size()
+		}
 		if info.ModTime().After(newest) {
 			newest = info.ModTime()
 		}
 	}
-	if !found || time.Since(newest) < s.options.UploadResumeTTL {
+	ttl := s.options.UploadResumeTTL
+	if empty := s.options.EmptyUploadTTL; empty > 0 && stored == 0 && empty < ttl {
+		ttl = empty
+	}
+	if !found || time.Since(newest) < ttl {
 		return nil
 	}
 	s.removeResumableLocked(id)
@@ -419,6 +437,16 @@ func (s *Store) resumableInfoPath(id string) string {
 // warnings and errors still reach stderr. tusd takes an x/exp/slog logger.
 func tusLogger() *expslog.Logger {
 	return expslog.New(expslog.NewTextHandler(os.Stderr, &expslog.HandlerOptions{Level: expslog.LevelWarn}))
+}
+
+// retryAfterSeconds is the Retry-After the capacity refusals advertise.
+const retryAfterSeconds = "30"
+
+// jsonHTTPErrorRetry is jsonHTTPError with a Retry-After header.
+func jsonHTTPErrorRetry(status int, code, retryAfter string) handler.Error {
+	err := jsonHTTPError(status, code)
+	err.HTTPResponse.Header["Retry-After"] = retryAfter
+	return err
 }
 
 // jsonHTTPError is a tus error whose body is the application's JSON error format.

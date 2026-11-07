@@ -127,6 +127,8 @@ Parte del ejemplo completo en [`../.env.example`](../.env.example): cópialo a `
 | `BODA_MAX_CONCURRENT_UPLOADS` | No | `30` | Por encima, 503 con `Retry-After`. |
 | `BODA_UPLOAD_IDLE_TIMEOUT` | No | `90s` | Plazo de inactividad, no de duración total. |
 | `BODA_UPLOAD_RESUME_TTL` | No | `24h` | Tiempo que se conserva una subida tus a medias sin actividad; después la conciliación la borra. Una subida con un `PATCH` en curso no caduca. |
+| `BODA_UPLOAD_EMPTY_TTL` | No | `15m` | Duración positiva. Una subida tus que no ha recibido ningún byte caduca pasado este tiempo; nunca supera a `BODA_UPLOAD_RESUME_TTL`. |
+| `BODA_MAX_PENDING_UPLOADS` | No | `300` | Entero positivo. Máximo de subidas tus pendientes; al alcanzarlo, crear otra responde `503 too_many_pending_uploads` con `Retry-After: 30`. También limita a `2 ×` este valor los derivados en `tmp/*.staged` de originales sin confirmar (`503 too_many_staged_derivatives`). |
 | `BODA_DISK_MIN_FREE_BYTES` | No | `16106127360` | 15 GB; por debajo se cortan las subidas automáticamente. |
 | `BODA_CLEANUP_INTERVAL` | No | `10m` | Intervalo de limpieza y conciliación. |
 | `BODA_STAGED_DERIVATIVE_TTL` | No | `24h` | Tiempo que se guardan miniaturas cuyo original nunca se confirma; después la conciliación las borra. |
@@ -337,7 +339,7 @@ Cada pasada deja en el log una línea `reconciled upload storage` con los recuen
 
 ### Subidas tus pendientes (`tmp/tus/`)
 
-Cada original que se está subiendo con tus (ADR-0014) ocupa `tmp/tus/` con dos archivos por identificador: `<id>`, con los bytes recibidos hasta ahora, y `<id>.info`, un JSON con los metadatos declarados. En `<id>.info`, `Size` es el tamaño declarado al crear la subida. Su campo `Offset` se escribe solo al crear la subida y no refleja el progreso: el progreso real es el tamaño del archivo `<id>`. Mientras una subida está pendiente, su espacio que falta (`Size` menos los bytes en disco) cuenta como reservado frente al mínimo libre, así que una subida a medias ocupa disco hasta que termina, se cancela o caduca.
+Cada original que se está subiendo con tus (ADR-0014) ocupa `tmp/tus/` con dos archivos por identificador: `<id>`, con los bytes recibidos hasta ahora, y `<id>.info`, un JSON con los metadatos declarados. En `<id>.info`, `Size` es el tamaño declarado al crear la subida. Su campo `Offset` se escribe solo al crear la subida y no refleja el progreso: el progreso real es el tamaño del archivo `<id>`. Mientras una subida está pendiente, su espacio que falta (`Size` menos los bytes en disco) cuenta como reservado frente al mínimo libre, así que una subida a medias ocupa disco hasta que termina, se cancela o caduca. Para que subidas vacías no agoten el tope, una subida sin bytes caduca a los `BODA_UPLOAD_EMPTY_TTL` (15 minutos por defecto) y el número de subidas pendientes se limita con `BODA_MAX_PENDING_UPLOADS`. La comprobación del tope va después de la de duplicados y antes de la del espacio libre.
 
 Para ver las subidas pendientes y su progreso:
 
