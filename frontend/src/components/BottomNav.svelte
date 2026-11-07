@@ -109,7 +109,7 @@
     margin-top: 1.5rem;
     background: var(--paper);
     border-top: 1px solid var(--line);
-    box-shadow: 0 -2px 10px rgb(47 42 38 / 0.06);
+    box-shadow: var(--shadow-up);
   }
 
   .row {
@@ -143,7 +143,7 @@
     background: none;
     color: var(--muted);
     font: inherit;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     line-height: 1.1;
     cursor: pointer;
   }
@@ -195,10 +195,8 @@
     border: 4px solid var(--paper);
     border-radius: 50%;
     background: linear-gradient(145deg, var(--sage), var(--sage-dark));
-    color: #fff;
-    box-shadow:
-      0 6px 16px rgb(86 108 75 / 0.45),
-      0 1px 3px rgb(47 42 38 / 0.2);
+    color: var(--on-accent);
+    box-shadow: var(--shadow-fab);
     transition: transform 120ms ease-out;
   }
 
@@ -211,7 +209,7 @@
   .upload {
     min-width: 5rem;
     color: var(--sage-dark);
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
     font-weight: 700;
   }
 

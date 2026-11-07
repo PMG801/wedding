@@ -278,12 +278,12 @@
 
   .pinned-admin h3 {
     margin: 0.5rem 0 0;
-    font-size: 1.25rem;
+    font-size: var(--text-lg);
   }
 
   .pinned-admin h4 {
     margin: 0.5rem 0 0;
-    font-size: 1.05rem;
+    font-size: var(--text-base);
   }
 
   .pinned-list {
@@ -333,7 +333,7 @@
 
   .confirm {
     color: var(--danger);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
   }
 
   .pinned-form {

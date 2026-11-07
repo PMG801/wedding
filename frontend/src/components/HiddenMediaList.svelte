@@ -85,7 +85,7 @@
 <style>
   .hidden-media h3 {
     margin: 0.5rem 0 0;
-    font-size: 1.25rem;
+    font-size: var(--text-lg);
   }
 
   .grid {
@@ -115,7 +115,7 @@
     display: grid;
     place-items: center;
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
     text-align: center;
   }
 

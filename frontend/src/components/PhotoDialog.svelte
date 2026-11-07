@@ -185,9 +185,10 @@
   .heart-burst {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    z-index: var(--z-raised);
     display: grid;
     place-items: center;
+    /* Off the type scale on purpose: a decorative glyph (named in styles.test.ts). */
     font-size: 6rem;
     color: var(--danger-soft);
     pointer-events: none;

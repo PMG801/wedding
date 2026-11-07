@@ -129,7 +129,7 @@
     margin: 0;
     padding: 0;
     border: none;
-    background: #1d1a17;
+    background: var(--viewer-bg);
     color: var(--paper);
     overscroll-behavior: contain;
     display: grid;
@@ -143,8 +143,13 @@
     grid-template-areas: 'top' 'frame' 'controls';
   }
 
+  /* Dark surface: the global sage ring would not reach 3:1 here; --on-dark on --viewer-bg is about 16:1. */
+  .lightbox :global(:focus-visible) {
+    outline-color: var(--on-dark);
+  }
+
   .lightbox::backdrop {
-    background: rgb(20 17 15 / 0.9);
+    background: var(--viewer-backdrop);
   }
 
   /* Short open transition only; the closed dialog is display: none, so nothing animates on close (S10). */
@@ -229,7 +234,7 @@
     border-radius: 999px;
     background: var(--paper);
     color: var(--danger);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     text-align: center;
     pointer-events: none;
   }
@@ -246,8 +251,8 @@
   }
 
   .lightbox :global(.button.ghost) {
-    border-color: rgb(255 253 248 / 0.35);
-    background: rgb(255 253 248 / 0.08);
+    border-color: var(--on-dark-border);
+    background: var(--on-dark-fill);
     color: var(--paper);
   }
 

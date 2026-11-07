@@ -78,7 +78,7 @@
     border: 1px solid var(--line);
     border-radius: 0.6rem;
     background: var(--paper);
-    box-shadow: 0 2px 8px rgb(47 42 38 / 0.08);
+    box-shadow: var(--shadow-md);
     display: grid;
     gap: 0.35rem;
     /* Notes may add lines, but never cover the whole screen (landscape phones). */
@@ -105,7 +105,7 @@
 
   .strip p {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     line-height: 1.3;
   }
 
@@ -127,7 +127,7 @@
 
   .summary-note {
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   .actions {
