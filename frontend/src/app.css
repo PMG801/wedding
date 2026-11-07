@@ -104,7 +104,9 @@ h2 {
 }
 
 .button.primary {
-  background: var(--sage);
+  /* White on --sage is 3.3:1; --sage-dark keeps the label above WCAG AA (4.5:1). */
+  border-color: var(--sage-dark);
+  background: var(--sage-dark);
   color: #fff;
   min-height: 3.25rem;
   padding: 0.6rem 1.6rem;
