@@ -18,8 +18,7 @@ describe('periodLabel', () => {
     expect(periodLabel('2026-10-18T18:61:00', '2026-10-18T20:00:00')).toBeNull()
   })
 
-  it('names the bubble and its album in Spanish', () => {
-    expect(copy.carousel.viewAlbum).toBe('Ver álbum completo')
+  it('names the bubble in Spanish', () => {
     expect(copy.carousel.bubble('18:00–20:00')).toContain('18:00–20:00')
   })
 })

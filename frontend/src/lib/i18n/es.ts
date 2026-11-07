@@ -37,7 +37,6 @@ export const copy = {
   carousel: {
     heading: 'Momentos del día',
     bubble: (label: string): string => `Fotos de ${label}`,
-    viewAlbum: 'Ver álbum completo',
     counter: (position: number, total: number): string => `${position} de ${total}`,
     back: 'Volver',
     albumError: 'No se ha podido cargar el álbum. Inténtalo de nuevo.',

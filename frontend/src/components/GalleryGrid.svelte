@@ -127,9 +127,7 @@
   })
 </script>
 
-<section id="gallery" class="gallery" aria-labelledby="gallery-heading">
-  <h2 id="gallery-heading">{copy.gallery.heading}</h2>
-
+<section id="gallery" class="gallery" aria-label={copy.gallery.heading}>
   {#if feed.view === 'recent'}
     <div class="toolbar">
       <div class="kinds" role="group" aria-label={copy.gallery.kinds.label}>
@@ -220,11 +218,6 @@
 </section>
 
 <style>
-  .gallery h2 {
-    margin-bottom: 0.5rem;
-    text-align: center;
-  }
-
   /* One quiet line: type filter on the left, order on the right, a hairline underneath. */
   .toolbar {
     display: flex;
