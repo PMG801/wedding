@@ -112,10 +112,16 @@
     text-align: center;
   }
 
+  /* The story controls sit on the dark viewer: same light ring as the lightbox. */
+  .no-preview :global(:focus-visible),
+  :global(.lightbox .button.round:focus-visible) {
+    outline-color: var(--on-dark);
+  }
+
   .counter {
     margin: 0;
     color: var(--paper);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     white-space: nowrap;
   }
 </style>

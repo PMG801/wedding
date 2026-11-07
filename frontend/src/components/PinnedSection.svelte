@@ -160,7 +160,7 @@
 
   .pinned h2 {
     margin: 0;
-    font-size: 1.4rem;
+    font-size: var(--text-xl);
   }
 
   .pin {
@@ -176,7 +176,7 @@
 
   .count {
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
   }
 
   .toggle,
@@ -259,7 +259,7 @@
     border-top: 3px solid var(--sage);
     border-radius: 0.9rem;
     background: var(--paper);
-    box-shadow: 0 1px 3px rgb(47 42 38 / 0.08);
+    box-shadow: var(--shadow-sm);
   }
 
   .pinned-item:only-child {
@@ -293,7 +293,7 @@
   .pinned-text h3 {
     margin: 0;
     font-family: var(--serif);
-    font-size: 1.25rem;
+    font-size: var(--text-lg);
     font-weight: 500;
     line-height: 1.2;
     overflow-wrap: anywhere;
@@ -302,7 +302,7 @@
   .body {
     margin: 0;
     color: var(--ink);
-    font-size: 0.95rem;
+    font-size: var(--text-md);
     line-height: 1.5;
     white-space: pre-line;
     overflow-wrap: anywhere;

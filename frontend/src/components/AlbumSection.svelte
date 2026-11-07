@@ -137,7 +137,7 @@
   .bar {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: var(--z-raised);
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -149,7 +149,7 @@
 
   h2 {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: var(--text-lg);
   }
 
   .grid {
@@ -181,7 +181,7 @@
 
   .placeholder {
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
   }
 
   .more {

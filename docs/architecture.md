@@ -84,6 +84,7 @@ En reposo son unos **100 MB de 12 GB**. La CPU solo se usa de verdad en TLS y, d
 - **Routing:** cinco rutas no justifican SvelteKit. Basta con un router mínimo de cliente o con rutas por hash.
 - **Coste:** hace falta Node **solo para compilar**, en la etapa de build de Docker o en local.
 - **Descartado: React** (con Vite): más código de framework y más piezas que elegir (router, estado) sin ninguna ventaja aquí. **Next.js o SvelteKit con servidor:** meten Node en producción. **htmx o JavaScript sin framework:** la cola de subidas con su estado hace que en poco tiempo acabes escribiendo tu propio framework.
+- **Convenciones de estilo:** los valores visuales viven como tokens en `:root` de `frontend/src/app.css` y los componentes no usan literales. Colores y sombras: `--on-accent`, `--on-dark`, `--shadow-*`, `--scrim-*`, `--viewer-bg`; ningún `#hex`, `rgb()` ni `white` fuera de `:root`. Tipografía: escala `--text-xs` (0,75 rem, el mínimo) a `--text-xl`; solo quedan fuera el título del héroe, el `h2` y el corazón de 6 rem, que están nombrados en el test. Capas: `--z-raised`, `--z-album`, `--z-back-to-top` y `--z-dock`. Hay una única regla global `:focus-visible` (anillo de 3 px en `--sage-dark`; anillo claro en los visores oscuros) y una única regla global `prefers-reduced-motion`. `.button.small` mide al menos 2,75 rem. `frontend/src/styles.test.ts` y `frontend/src/app.css.test.ts` lo comprueban, y `npm run check` ejecuta `svelte-check`.
 
 ### 1.6 Piezas descartadas en todo el stack
 

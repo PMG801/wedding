@@ -292,7 +292,7 @@
     top: 0;
     left: 0;
     right: 0;
-    z-index: 15;
+    z-index: var(--z-album);
   }
 
   /* Fixed under the page: the strip above the nav, both in the same 960px column. */
@@ -301,7 +301,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 20;
+    z-index: var(--z-dock);
     /* The room above the raised upload button stays transparent to taps on the gallery. */
     pointer-events: none;
   }
