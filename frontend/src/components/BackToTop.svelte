@@ -41,7 +41,7 @@
   .top {
     position: fixed;
     right: max(1rem, calc((100vw - 960px) / 2 + 1rem));
-    z-index: 19;
+    z-index: var(--z-back-to-top);
     width: 44px;
     height: 44px;
     display: grid;
@@ -51,7 +51,7 @@
     border-radius: 50%;
     background: var(--paper);
     color: var(--sage-dark);
-    box-shadow: 0 2px 10px rgb(47 42 38 / 0.15);
+    box-shadow: var(--shadow-lg);
     cursor: pointer;
     opacity: 0;
     transform: translateY(8px);

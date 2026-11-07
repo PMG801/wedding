@@ -161,7 +161,7 @@
 
   .admin h2 {
     margin: 0.5rem 0 0;
-    font-size: 1.5rem;
+    font-size: var(--text-xl);
   }
 
   .admin-form {

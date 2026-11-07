@@ -52,6 +52,8 @@ A corregir o mejorar:
 7. **`prefers-reduced-motion` repetido.** Se declara componente a componente. Una regla global (`*, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important }`) cubre también lo que se añada después.
 8. **Sin herramientas de estilo.** No hay ESLint, Prettier ni stylelint, y `svelte-check` no está en `package.json`. Añadir los scripts `check` y `lint` y ejecutarlos en el CI.
 
+Estado: los puntos 2 a 7 y el script `check` del punto 8 están resueltos (ver «Convenciones de estilo» en `docs/architecture.md`); `lint` sigue pendiente.
+
 ## Futuro: calidad y seguridad en el CI/CD
 
 Apuntado para una implementación posterior (no forma parte de la release).

@@ -243,7 +243,7 @@
     background: none;
     color: var(--muted);
     font: inherit;
-    font-size: 0.95rem;
+    font-size: var(--text-md);
     cursor: pointer;
   }
 
@@ -263,7 +263,7 @@
     background: none;
     color: var(--muted);
     font: inherit;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
 
@@ -327,9 +327,9 @@
     gap: 0.25rem;
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
-    background: rgb(29 26 23 / 0.6);
-    color: #fff;
-    font-size: 0.8rem;
+    background: var(--scrim-soft);
+    color: var(--on-accent);
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
 
@@ -372,9 +372,9 @@
     width: 1.8rem;
     height: 1.8rem;
     border-radius: 50%;
-    background: rgb(29 26 23 / 0.7);
-    color: #fff;
-    font-size: 0.8rem;
+    background: var(--scrim-strong);
+    color: var(--on-accent);
+    font-size: var(--text-sm);
     pointer-events: none;
   }
 
@@ -384,7 +384,7 @@
     place-items: center;
     padding: 0.5rem;
     text-align: center;
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
