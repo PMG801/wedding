@@ -20,7 +20,7 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS backend-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app/backend
-COPY backend/go.mod ./
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /out/boda ./cmd/boda

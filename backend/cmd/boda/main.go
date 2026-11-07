@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -219,7 +220,7 @@ func runServe() (resultErr error) {
 
 	select {
 	case err := <-serverErr:
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
@@ -229,7 +230,7 @@ func runServe() (resultErr error) {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("graceful shutdown: %w", err)
 		}
-		if err := <-serverErr; err != nil && err != http.ErrServerClosed {
+		if err := <-serverErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
