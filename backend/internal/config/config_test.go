@@ -149,3 +149,28 @@ func TestLoadFromParsesUploadResumeTTL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFromParsesUploadCaps(t *testing.T) {
+	got, err := loadFrom(validEnvironment())
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if got.MaxPendingUploads != 300 || got.EmptyUploadTTL != 15*time.Minute {
+		t.Errorf("defaults = %d, %s; want 300, 15m", got.MaxPendingUploads, got.EmptyUploadTTL)
+	}
+	values := validEnvironment()
+	values["BODA_MAX_PENDING_UPLOADS"] = "7"
+	values["BODA_UPLOAD_EMPTY_TTL"] = "5m"
+	if got, err = loadFrom(values); err != nil || got.MaxPendingUploads != 7 || got.EmptyUploadTTL != 5*time.Minute {
+		t.Fatalf("explicit values = %d, %s, %v; want 7, 5m", got.MaxPendingUploads, got.EmptyUploadTTL, err)
+	}
+	for key, invalids := range map[string][]string{"BODA_MAX_PENDING_UPLOADS": {"0", "-1", "many"}, "BODA_UPLOAD_EMPTY_TTL": {"0s", "-1m", "soon"}} {
+		for _, invalid := range invalids {
+			values := validEnvironment()
+			values[key] = invalid
+			if _, err := loadFrom(values); err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("%s=%q error = %v; want an error naming the setting", key, invalid, err)
+			}
+		}
+	}
+}

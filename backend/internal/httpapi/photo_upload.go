@@ -90,6 +90,9 @@ func newDerivativeUploadHandler(photos derivativePhotoUploader, capacity chan st
 				writeUploadError(w, http.StatusNotFound, "media_not_found")
 			case errors.Is(err, upload.ErrInsufficientStorage):
 				writeUploadError(w, http.StatusInsufficientStorage, "insufficient_storage")
+			case errors.Is(err, upload.ErrTooManyStagedDerivatives):
+				w.Header().Set("Retry-After", "30")
+				writeUploadError(w, http.StatusServiceUnavailable, "too_many_staged_derivatives")
 			case errors.Is(err, upload.ErrUnsupportedPhoto):
 				writeUploadError(w, http.StatusUnsupportedMediaType, "unsupported_derivative_format")
 			case errors.Is(err, upload.ErrDerivativeTooLarge):

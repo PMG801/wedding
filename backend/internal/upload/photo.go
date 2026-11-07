@@ -18,13 +18,14 @@ import (
 )
 
 var (
-	ErrUnsupportedPhoto    = errors.New("unsupported photo signature")
-	ErrPhotoSizeMismatch   = errors.New("photo body does not match declared size")
-	ErrInsufficientStorage = errors.New("minimum free-disk threshold would be exceeded")
-	ErrMediaHidden         = errors.New("media is hidden")
-	ErrPhotoTooLarge       = errors.New("photo exceeds the configured size limit")
-	ErrVideoTooLarge       = errors.New("video exceeds the configured size limit")
-	ErrDerivativeTooLarge  = errors.New("derivative exceeds the configured size limit")
+	ErrUnsupportedPhoto         = errors.New("unsupported photo signature")
+	ErrPhotoSizeMismatch        = errors.New("photo body does not match declared size")
+	ErrInsufficientStorage      = errors.New("minimum free-disk threshold would be exceeded")
+	ErrTooManyStagedDerivatives = errors.New("too many staged derivatives of unconfirmed originals")
+	ErrMediaHidden              = errors.New("media is hidden")
+	ErrPhotoTooLarge            = errors.New("photo exceeds the configured size limit")
+	ErrVideoTooLarge            = errors.New("video exceeds the configured size limit")
+	ErrDerivativeTooLarge       = errors.New("derivative exceeds the configured size limit")
 )
 
 type PhotoType struct{ MIME, Extension string }
@@ -67,6 +68,12 @@ type Options struct {
 	StagedDerivativeTTL time.Duration
 	// UploadResumeTTL expires resumable uploads idle for longer; zero keeps them.
 	UploadResumeTTL time.Duration
+	// MaxPendingUploads caps the resumable uploads pending in tmp/tus, and twice
+	// that many staged derivatives of unconfirmed originals; zero means no cap.
+	MaxPendingUploads int
+	// EmptyUploadTTL expires a pending upload that has received no bytes sooner
+	// than UploadResumeTTL (the shorter of the two applies); zero disables it.
+	EmptyUploadTTL time.Duration
 	// FreeSpace overrides the free-space probe; tests use it to simulate a full disk.
 	FreeSpace func(path string) (uint64, error)
 }

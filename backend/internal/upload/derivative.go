@@ -82,6 +82,13 @@ func (s *Store) SaveDerivative(ctx context.Context, id, variant string, declared
 	if declaredSize > s.MaxDerivativeBytes() {
 		return Derivative{}, ErrDerivativeTooLarge
 	}
+	if !confirmed {
+		releaseStaged, err := s.admitStaged()
+		if err != nil {
+			return Derivative{}, err
+		}
+		defer releaseStaged()
+	}
 	select {
 	case s.semaphore <- struct{}{}:
 		defer func() { <-s.semaphore }()

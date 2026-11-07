@@ -21,6 +21,8 @@ type Config struct {
 	MaxConcurrentUploads int
 	UploadIdleTimeout    time.Duration
 	UploadResumeTTL      time.Duration
+	EmptyUploadTTL       time.Duration
+	MaxPendingUploads    int
 	DiskMinFreeBytes     int64
 	CleanupInterval      time.Duration
 	MaxDerivativeBytes   int64
@@ -98,6 +100,12 @@ func LoadFrom(lookup func(string) (string, bool), names []string) (Config, error
 		return Config{}, err
 	}
 	if cfg.UploadResumeTTL, err = positiveDuration(lookup, "BODA_UPLOAD_RESUME_TTL", 24*time.Hour); err != nil {
+		return Config{}, err
+	}
+	if cfg.EmptyUploadTTL, err = positiveDuration(lookup, "BODA_UPLOAD_EMPTY_TTL", 15*time.Minute); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxPendingUploads, err = positiveInt(lookup, "BODA_MAX_PENDING_UPLOADS", 300); err != nil {
 		return Config{}, err
 	}
 	if cfg.DiskMinFreeBytes, err = positiveInt64(lookup, "BODA_DISK_MIN_FREE_BYTES", 16106127360); err != nil {
