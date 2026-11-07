@@ -139,6 +139,8 @@ func newPhotoStore(database *sql.DB, cfg config.Config, paths storage.Paths) (*u
 		MaxConcurrent:       cfg.MaxConcurrentUploads,
 		MinFreeBytes:        uint64(cfg.DiskMinFreeBytes),
 		UploadResumeTTL:     cfg.UploadResumeTTL,
+		EmptyUploadTTL:      cfg.EmptyUploadTTL,
+		MaxPendingUploads:   cfg.MaxPendingUploads,
 	})
 }
 

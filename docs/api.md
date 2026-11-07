@@ -99,6 +99,7 @@ Las variantes pueden subirse antes que el original. En ese caso quedan en almace
 | `415 Unsupported Media Type` | El tipo declarado no es `image/jpeg` o la firma no es JPEG (`{"error":"unsupported_derivative_format"}`). |
 | `507 Insufficient Storage` | El espacio libre no alcanza el umbral mínimo configurado (`{"error":"insufficient_storage"}`). |
 | `503 Service Unavailable` | Capacidad compartida de subidas completa: respuesta inmediata, `Retry-After: 1` y `{"error":"upload_capacity_reached"}`; si el servicio de derivados no está disponible, `{"error":"derivatives_unavailable"}`. |
+| `503 Service Unavailable` (derivados, tope) | Ya hay `2 × BODA_MAX_PENDING_UPLOADS` derivados en espera de su original: `Retry-After: 30` y `{"error":"too_many_staged_derivatives"}`, sin escribir nada. Reintentar un derivado ya guardado sigue respondiendo `200`. |
 | `503 Service Unavailable` (derivados) | Subidas en pausa con el interruptor de administración: `{"error":"uploads_paused"}`, sin leer el cuerpo ni reservar capacidad. |
 | `500 Internal Server Error` | Error interno al guardar el derivado (`{"error":"derivative_upload_failed"}`). |
 
@@ -116,6 +117,7 @@ El metadato opcional `captured_at` de `Upload-Metadata` lleva la hora local de c
 | `400 Bad Request` | `id` ausente o no canónico (`{"error":"invalid_media_id"}`) o `Upload-Length` igual a 0 (`{"error":"invalid_upload_length"}`). |
 | `409 Conflict` | El medio ya está confirmado (`{"error":"already_confirmed"}`); el cliente lo trata como éxito. Si ya hay una subida pendiente con ese identificador, `{"error":"upload_in_progress"}`: se reanuda con `HEAD`, no se vuelve a crear. |
 | `413 Request Entity Too Large` | `Upload-Length` supera el mayor de los dos límites (`{"error":"media_too_large"}`). |
+| `503 Service Unavailable` | Hay `BODA_MAX_PENDING_UPLOADS` subidas pendientes: `Retry-After: 30` y `{"error":"too_many_pending_uploads"}`, sin crear archivos. Se comprueba tras el `409` y antes del `507`. |
 | `507 Insufficient Storage` | `libre − reservado − Upload-Length` quedaría por debajo de `BODA_DISK_MIN_FREE_BYTES` (`{"error":"insufficient_storage"}`). |
 
 **`HEAD /api/uploads/{id}` — consultar el progreso.** `200` con `Upload-Offset`, `Upload-Length` y `Cache-Control: no-store`. Para un medio ya confirmado responde como una subida completa (`Upload-Offset` igual a `Upload-Length`), de modo que el reintento termina sin reenviar nada. Si la subida tiene todos sus bytes pero aún no está publicada (fallo al publicar), el `HEAD` vuelve a intentarlo: `200` completo si lo consigue, o `500 {"error":"upload_failed"}`, o el `413`/`415` del `PATCH` final, que también borra la subida. `404 {"error":"upload_not_found"}` si no existe ni está confirmado.
@@ -132,7 +134,7 @@ El metadato opcional `captured_at` de `Upload-Metadata` lleva la hora local de c
 
 **`DELETE /api/uploads/{id}` — cancelar.** `204` y borra la subida a medias; `404 {"error":"upload_not_found"}` si no existe. `HEAD` y `DELETE` funcionan también con las subidas en pausa. Un `PATCH` sobre un identificador no canónico responde `404 {"error":"upload_not_found"}`.
 
-Las subidas a medias sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 h por defecto) las borra la conciliación.
+Las subidas a medias sin actividad durante `BODA_UPLOAD_RESUME_TTL` (24 h por defecto) las borra la conciliación; una subida sin ningún byte caduca antes, a los `BODA_UPLOAD_EMPTY_TTL` (15 min por defecto).
 
 ### `GET /api/media?cursor=<opaco>&limit=50&order=newest&type=photo` — galería
 

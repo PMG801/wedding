@@ -3,6 +3,8 @@ package upload
 import (
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -21,6 +23,9 @@ type DiskUsage struct {
 type diskLedger struct {
 	mu       sync.Mutex // serializes check-and-reserve
 	reserved atomic.Int64
+	// stagedInFlight counts staged derivatives admitted but not yet renamed to
+	// their .staged name; guarded by mu.
+	stagedInFlight int
 }
 
 type reservation struct {
@@ -63,11 +68,16 @@ func (s *Store) DiskUsage() (DiskUsage, error) {
 // reservedLocked returns the bytes promised to uploads that have not reached
 // the disk yet. Callers hold ledger.mu.
 func (s *Store) reservedLocked() (uint64, error) {
-	pending, err := s.pendingResumableBytes()
+	pending, _, err := s.pendingResumableBytes()
 	if err != nil {
 		return 0, err
 	}
-	return pending + uint64(max(s.ledger.reserved.Load(), 0)), nil
+	return s.withLedgerReserved(pending), nil
+}
+
+// withLedgerReserved adds the derivative ledger to the pending resumable bytes.
+func (s *Store) withLedgerReserved(pending uint64) uint64 {
+	return pending + uint64(max(s.ledger.reserved.Load(), 0))
 }
 
 // admitLocked fails with ErrInsufficientStorage unless declaredSize more bytes
@@ -80,6 +90,12 @@ func (s *Store) admitLocked(declaredSize int64) error {
 	if err != nil {
 		return err
 	}
+	return s.admitReservedLocked(declaredSize, reserved)
+}
+
+// admitReservedLocked is admitLocked for a caller that already measured the
+// reservations (always before this statfs).
+func (s *Store) admitReservedLocked(declaredSize int64, reserved uint64) error {
 	free, err := s.free()
 	if err != nil {
 		return err
@@ -127,4 +143,36 @@ func (w reservedWriter) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	w.r.wrote(n)
 	return n, err
+}
+
+// admitStaged refuses a new staged derivative once tmp holds 2*MaxPendingUploads
+// of them, counting those still being written. On success the caller must call
+// the returned function when it is done with the derivative. It runs under
+// ledger.mu, so concurrent admissions cannot overshoot the cap.
+func (s *Store) admitStaged() (func(), error) {
+	limit := 2 * s.options.MaxPendingUploads
+	if limit <= 0 {
+		return func() {}, nil
+	}
+	s.ledger.mu.Lock()
+	defer s.ledger.mu.Unlock()
+	entries, err := os.ReadDir(s.paths.Tmp)
+	if err != nil {
+		return nil, fmt.Errorf("list staged derivatives: %w", err)
+	}
+	count := s.ledger.stagedInFlight
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".staged") {
+			count++
+		}
+	}
+	if count >= limit {
+		return nil, ErrTooManyStagedDerivatives
+	}
+	s.ledger.stagedInFlight++
+	return func() {
+		s.ledger.mu.Lock()
+		defer s.ledger.mu.Unlock()
+		s.ledger.stagedInFlight--
+	}, nil
 }
